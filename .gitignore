@@ -1,0 +1,19 @@
+# Binaries
+bin/*
+!bin/cups-webui
+
+# Node
+web/node_modules/
+
+# OS
+.DS_Store
+*/.DS_Store
+**/.DS_Store
+
+# Temporary files
+temp_screen_shot*
+temp_*
+
+# Internal docs (not published)
+[Ss]ecurity_architecture.md
+spec.md

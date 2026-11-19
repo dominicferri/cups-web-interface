@@ -1,0 +1,222 @@
+@import "@fontsource/barlow/latin-500.css";
+@import "@fontsource/barlow/latin-600.css";
+@import "@fontsource/barlow/latin-700.css";
+@import "@fontsource/source-sans-3/latin-400.css";
+@import "@fontsource/source-sans-3/latin-600.css";
+@import "@fontsource/source-code-pro/latin-400.css";
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Look and feel: quiet by default, colour only when it means something.
+ *
+ *  - One accent: PaperCut green, for primary actions, the active tab and healthy status.
+ *  - Red and orange are reserved for problems and things needing attention.
+ *  - Everything else is neutral grey.
+ *  - 3px corners, 1px borders, no drop shadows on panels.
+ *
+ * Tailwind's colour scales are remapped here so that every component follows
+ * the palette: "blue" and "emerald" are the brand green, "amber" is attention
+ * orange, "red" and "rose" are the problem red, and the decorative hues
+ * (indigo, purple, sky) resolve to neutral greys.
+ */
+@theme {
+  --font-sans: "Source Sans 3", "Source Sans Pro", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-display: "Barlow", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-mono: "Source Code Pro", ui-monospace, Menlo, Consolas, monospace;
+
+  /* Neutrals (light text and surfaces at the low end, dark surfaces at the high end) */
+  --color-slate-50: #f8f9fa;
+  --color-slate-100: #eff3f7;
+  --color-slate-200: #dce0e5;
+  --color-slate-300: #c6ccd3;
+  --color-slate-400: #9da7b1;
+  --color-slate-500: #5c646c;
+  --color-slate-600: #464e56;
+  --color-slate-700: #2a3847;
+  --color-slate-800: #15212e;
+  --color-slate-850: #1a2836;
+  --color-slate-900: #121e2b;
+  --color-slate-950: #0d1620;
+
+  /* Soft border tokens: keep panels & dividers subtle, give interactive controls a gentle definition */
+  --border-color-slate-300: #b8c0c8;
+  --border-color-slate-600: #384858;
+
+  /* Brand green */
+  --color-brand-50: #e7f6e9;
+  --color-brand-100: #d3eed7;
+  --color-brand-200: #a9dcb0;
+  --color-brand-300: #77c983;
+  --color-brand-400: #4ec35e;
+  --color-brand-500: #26a726;
+  --color-brand-600: #157d26;
+  --color-brand-700: #0d7621;
+  --color-brand-800: #006316;
+  --color-brand-900: #0a4b17;
+  --color-brand-950: #062f10;
+
+  --color-blue-50: var(--color-brand-50);
+  --color-blue-100: var(--color-brand-100);
+  --color-blue-200: var(--color-brand-200);
+  --color-blue-300: var(--color-brand-300);
+  --color-blue-400: var(--color-brand-400);
+  --color-blue-500: var(--color-brand-600);
+  --color-blue-600: var(--color-brand-600);
+  --color-blue-700: var(--color-brand-700);
+  --color-blue-800: var(--color-brand-800);
+  --color-blue-900: var(--color-brand-900);
+  --color-blue-950: var(--color-brand-950);
+
+  --color-emerald-50: var(--color-brand-50);
+  --color-emerald-100: var(--color-brand-100);
+  --color-emerald-200: var(--color-brand-200);
+  --color-emerald-300: var(--color-brand-300);
+  --color-emerald-400: var(--color-brand-400);
+  --color-emerald-500: var(--color-brand-500);
+  --color-emerald-600: var(--color-brand-600);
+  --color-emerald-700: var(--color-brand-700);
+  --color-emerald-800: var(--color-brand-800);
+  --color-emerald-900: var(--color-brand-900);
+  --color-emerald-950: var(--color-brand-950);
+
+  /* Attention orange */
+  --color-amber-50: #fdf3e7;
+  --color-amber-100: #fbe5cb;
+  --color-amber-200: #f6cb9a;
+  --color-amber-300: #f2b06a;
+  --color-amber-400: #ffa255;
+  --color-amber-500: #e07a1a;
+  --color-amber-600: #bb4f00;
+  --color-amber-700: #a04400;
+  --color-amber-800: #863900;
+  --color-amber-900: #5f2900;
+  --color-amber-950: #3b1900;
+
+  /* Problem red */
+  --color-red-50: #fbeff2;
+  --color-red-100: #f5e5ea;
+  --color-red-200: #ecc3ce;
+  --color-red-300: #e394a8;
+  --color-red-400: #ff6b8b;
+  --color-red-500: #d4385c;
+  --color-red-600: #bf2348;
+  --color-red-700: #ab1d46;
+  --color-red-800: #881240;
+  --color-red-900: #670e31;
+  --color-red-950: #430920;
+
+  --color-rose-50: var(--color-red-50);
+  --color-rose-100: var(--color-red-100);
+  --color-rose-200: var(--color-red-200);
+  --color-rose-300: var(--color-red-300);
+  --color-rose-400: var(--color-red-400);
+  --color-rose-500: var(--color-red-500);
+  --color-rose-600: var(--color-red-600);
+  --color-rose-700: var(--color-red-700);
+  --color-rose-800: var(--color-red-800);
+  --color-rose-900: var(--color-red-900);
+  --color-rose-950: var(--color-red-950);
+
+  /* Decorative hues resolve to neutrals */
+  --color-indigo-50: var(--color-slate-50);
+  --color-indigo-100: var(--color-slate-100);
+  --color-indigo-200: var(--color-slate-200);
+  --color-indigo-300: var(--color-slate-300);
+  --color-indigo-400: var(--color-slate-400);
+  --color-indigo-500: var(--color-slate-500);
+  --color-indigo-600: var(--color-slate-600);
+  --color-indigo-700: var(--color-slate-700);
+  --color-indigo-800: var(--color-slate-800);
+  --color-indigo-900: var(--color-slate-900);
+  --color-indigo-950: var(--color-slate-950);
+
+  --color-purple-50: var(--color-slate-50);
+  --color-purple-100: var(--color-slate-100);
+  --color-purple-200: var(--color-slate-200);
+  --color-purple-300: var(--color-slate-300);
+  --color-purple-400: var(--color-slate-400);
+  --color-purple-500: var(--color-slate-500);
+  --color-purple-600: var(--color-slate-600);
+  --color-purple-700: var(--color-slate-700);
+  --color-purple-800: var(--color-slate-800);
+  --color-purple-900: var(--color-slate-900);
+  --color-purple-950: var(--color-slate-950);
+
+  --color-sky-50: var(--color-slate-50);
+  --color-sky-100: var(--color-slate-100);
+  --color-sky-200: var(--color-slate-200);
+  --color-sky-300: var(--color-slate-300);
+  --color-sky-400: var(--color-slate-400);
+  --color-sky-500: var(--color-slate-500);
+  --color-sky-600: var(--color-slate-600);
+  --color-sky-700: var(--color-slate-700);
+  --color-sky-800: var(--color-slate-800);
+  --color-sky-900: var(--color-slate-900);
+  --color-sky-950: var(--color-slate-950);
+
+  /* Crisp corners */
+  --radius-xs: 2px;
+  --radius-sm: 3px;
+  --radius-md: 3px;
+  --radius-lg: 3px;
+  --radius-xl: 3px;
+  --radius-2xl: 3px;
+  --radius-3xl: 4px;
+  --radius-4xl: 4px;
+
+  /* Flat panels: only overlays (menus, dialogs) keep a shadow */
+  --shadow-2xs: 0 0 #0000;
+  --shadow-xs: 0 0 #0000;
+  --shadow-sm: 0 0 #0000;
+  --shadow-md: 0 0 #0000;
+  --shadow-lg: 0 10px 16px -8px rgb(18 30 43 / 0.25);
+  --shadow-xl: 0 12px 24px -8px rgb(18 30 43 / 0.3);
+  --shadow-2xl: 0 16px 40px -8px rgb(18 30 43 / 0.4);
+}
+
+:root {
+  font-family: var(--font-sans);
+  color-scheme: light;
+}
+
+:root.dark {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background-color: var(--color-slate-100);
+  color: var(--color-slate-600);
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+html.dark body {
+  background-color: var(--color-slate-950);
+  color: var(--color-slate-300);
+}
+
+/* Barlow for headings, labels and controls; Source Sans for reading text */
+h1,
+h2,
+h3,
+h4,
+th,
+button,
+label,
+[role="tab"] {
+  font-family: var(--font-display);
+}
+
+/* Dots and switches stay round; padded "pill" chips become square tags */
+.rounded-full[class*=" px-"],
+.rounded-full[class^="px-"] {
+  border-radius: var(--radius-md);
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--color-brand-600);
+}
