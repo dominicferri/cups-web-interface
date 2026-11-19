@@ -33,7 +33,7 @@ To remove the service: `./bin/cups-webui launchagent uninstall`
 
 ### Xerox drivers (optional)
 
-Put the Xerox macOS driver image in `drivers/`, named as Xerox ships it (`XeroxDrivers_<version>_<build>.dmg`). After the web interface opens, the installer compares that version with the installed one and offers to install it. The install asks for an administrator password. The image is not kept in this repository; download it from the Xerox support page for your printer model.
+`drivers/` holds the Xerox macOS driver image, named as Xerox ships it (`XeroxDrivers_<version>_<build>.dmg`). After the web interface opens, the installer compares that version with the installed one and offers to install it. The install asks for an administrator password. The image is Xerox software under the Xerox license, signed and notarized by Xerox Corporation. To update it, replace the file with a newer download from the Xerox support page for your printer model.
 
 ---
 
