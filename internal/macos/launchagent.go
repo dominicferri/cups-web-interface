@@ -2,6 +2,7 @@ package macos
 
 import (
 	"bytes"
+	"encoding/xml"
 	"fmt"
 	"os"
 	"os/exec"
@@ -41,26 +42,26 @@ const plistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>{{.Label}}</string>
+    <string>{{xml .Label}}</string>
     <key>ProgramArguments</key>
     <array>
-        <string>{{.BinaryPath}}</string>
+        <string>{{xml .BinaryPath}}</string>
         <string>serve</string>
         <string>-port</string>
         <string>{{.Port}}</string>
         <string>-host</string>
-        <string>{{.Host}}</string>
+        <string>{{xml .Host}}</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>{{.WorkingDir}}</string>
+    <string>{{xml .WorkingDir}}</string>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>{{.StdOutPath}}</string>
+    <string>{{xml .StdOutPath}}</string>
     <key>StandardErrorPath</key>
-    <string>{{.StdErrPath}}</string>
+    <string>{{xml .StdErrPath}}</string>
 </dict>
 </plist>
 `
@@ -111,7 +112,13 @@ func GeneratePlist(binaryPath string, port int, host string) (string, error) {
 		StdErrPath: filepath.Join(logsDir, fmt.Sprintf("%s.stderr.log", LaunchAgentLabel)),
 	}
 
-	tmpl, err := template.New("launchagent").Parse(plistTemplate)
+	// Paths can hold XML metacharacters (a home folder named "R&D").
+	xmlEscape := func(v string) (string, error) {
+		var b bytes.Buffer
+		err := xml.EscapeText(&b, []byte(v))
+		return b.String(), err
+	}
+	tmpl, err := template.New("launchagent").Funcs(template.FuncMap{"xml": xmlEscape}).Parse(plistTemplate)
 	if err != nil {
 		return "", err
 	}
@@ -140,15 +147,16 @@ func Install(binaryPath string, port int, host string) error {
 		return err
 	}
 
-	// Unload any previous running instance before replacing the binary on disk
-	_ = exec.Command("launchctl", "unload", plistPath).Run()
-
 	// Copy binary to ~/Library/Application Support/cups-webui/cups-webui.
 	// This ensures:
 	// 1. launchd executes outside of ~/Documents or ~/Downloads, preventing macOS TCC permission dialogs.
 	// 2. The background service persists independently of development or temporary build folders.
 	// 3. Writing to a temp file and renaming (new inode) avoids macOS arm64 vnode code-signature cache invalidation (SIGKILL) on upgrade.
+	//
+	// The new binary is staged before the running service is touched, so a
+	// failed read or write leaves the previous install working.
 	targetBinary, err := GetInstalledBinaryPath()
+	tmpBinary := ""
 	if err == nil {
 		if filepath.Clean(absBinary) != filepath.Clean(targetBinary) {
 			targetDir := filepath.Dir(targetBinary)
@@ -159,15 +167,11 @@ func Install(binaryPath string, port int, host string) error {
 			if err != nil {
 				return fmt.Errorf("failed to read source binary %s: %w", absBinary, err)
 			}
-			tmpBinary := targetBinary + ".tmp"
+			tmpBinary = targetBinary + ".tmp"
 			_ = os.Remove(tmpBinary)
 			if err := os.WriteFile(tmpBinary, data, 0755); err != nil {
-				return fmt.Errorf("failed to stage binary to %s: %w", tmpBinary, err)
-			}
-			_ = os.Remove(targetBinary)
-			if err := os.Rename(tmpBinary, targetBinary); err != nil {
 				_ = os.Remove(tmpBinary)
-				return fmt.Errorf("failed to replace installed binary at %s: %w", targetBinary, err)
+				return fmt.Errorf("failed to stage binary to %s: %w", tmpBinary, err)
 			}
 		}
 		absBinary = targetBinary
@@ -175,7 +179,21 @@ func Install(binaryPath string, port int, host string) error {
 
 	plistContent, err := GeneratePlist(absBinary, port, host)
 	if err != nil {
+		_ = os.Remove(tmpBinary)
 		return fmt.Errorf("failed to generate LaunchAgent plist: %w", err)
+	}
+
+	// Unload any previous running instance before replacing the binary on disk
+	_ = exec.Command("launchctl", "unload", plistPath).Run()
+
+	if tmpBinary != "" {
+		// Rename replaces the old binary in one step and never leaves the path empty.
+		if err := os.Rename(tmpBinary, targetBinary); err != nil {
+			_ = os.Remove(tmpBinary)
+			// Bring the previous install back up; it is still intact.
+			_ = exec.Command("launchctl", "load", plistPath).Run()
+			return fmt.Errorf("failed to replace installed binary at %s: %w", targetBinary, err)
+		}
 	}
 
 	if err := os.MkdirAll(filepath.Dir(plistPath), 0755); err != nil {
@@ -198,6 +216,13 @@ func Install(binaryPath string, port int, host string) error {
 	_ = exec.Command("launchctl", "start", LaunchAgentLabel).Run()
 
 	return nil
+}
+
+// IsLaunchAgentProcess reports whether this process was started by launchd as
+// the CUPS webui LaunchAgent. Such a process cannot install or uninstall the
+// agent itself: unloading the job stops it part-way. Use RunDetached instead.
+func IsLaunchAgentProcess() bool {
+	return os.Getenv("XPC_SERVICE_NAME") == LaunchAgentLabel
 }
 
 // Uninstall unloads and deletes the LaunchAgent plist.

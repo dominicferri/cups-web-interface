@@ -20,6 +20,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -87,6 +88,10 @@ func runServer() {
 		*mockMode = true
 	}
 
+	if !api.IsLoopbackHost(*host) {
+		log.Fatalf("[ERROR] -host %q is not a loopback address. Use 127.0.0.1, ::1 or localhost.", *host)
+	}
+
 	var adapter cups.Adapter
 	if *mockMode {
 		log.Println("[INFO] Initializing in MOCK mode with simulated printers and queues")
@@ -98,11 +103,12 @@ func runServer() {
 		adapter = cli
 	}
 
-	token := getOrGenerateSessionToken()
+	// A new token on every start, so one left in session.json by a crash is never reused.
+	token := generateSessionToken()
 	serverFS := web.GetFS()
 	srv := api.NewServer(adapter, serverFS, token)
 
-	addr := fmt.Sprintf("%s:%d", *host, *port)
+	addr := net.JoinHostPort(*host, strconv.Itoa(*port))
 	httpServer := &http.Server{
 		Addr:         addr,
 		Handler:      srv.Handler(),
@@ -134,7 +140,11 @@ func runServer() {
 	fmt.Println("==================================================")
 	fmt.Printf("  🖨️  CUPS webui v0.1.0\n")
 	fmt.Printf("  Serving at:    %s\n", targetURL)
-	fmt.Printf("  Session URL:   %s\n", browserURL)
+	// The Session URL holds the token. Show it on a terminal only, so it does
+	// not end up in the LaunchAgent log file or any other redirected output.
+	if info, err := os.Stdout.Stat(); err == nil && info.Mode()&os.ModeCharDevice != 0 {
+		fmt.Printf("  Session URL:   %s\n", browserURL)
+	}
 	if *mockMode {
 		fmt.Printf("  Mode:          MOCK (Simulated CUPS data)\n")
 	} else {
@@ -146,7 +156,9 @@ func runServer() {
 	if *autoOpen {
 		go func() {
 			time.Sleep(300 * time.Millisecond)
-			openBrowser(browserURL)
+			if err := openBrowser(browserURL); err != nil {
+				log.Printf("[WARN] Could not open the browser: %v", err)
+			}
 		}()
 	}
 
@@ -195,7 +207,10 @@ func handleOpenCommand(args []string) {
 	}
 
 	fmt.Printf("Opening CUPS webui in browser: %s\n", targetURL)
-	openBrowser(targetURL)
+	if err := openBrowser(targetURL); err != nil {
+		fmt.Fprintf(os.Stderr, "Error opening the browser: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 func handleLaunchAgentCommand(args []string) {
@@ -255,13 +270,6 @@ func handleLaunchAgentCommand(args []string) {
 	}
 }
 
-func getOrGenerateSessionToken() string {
-	if info, err := loadSessionInfo(); err == nil && info != nil && len(info.Token) >= 16 {
-		return info.Token
-	}
-	return generateSessionToken()
-}
-
 func generateSessionToken() string {
 	b := make([]byte, 16)
 	_, _ = rand.Read(b)
@@ -312,17 +320,15 @@ func clearSessionInfo() {
 	_ = os.Remove(getSessionFilePath())
 }
 
-func openBrowser(url string) {
-	var cmd *exec.Cmd
+func openBrowser(url string) error {
 	switch runtime.GOOS {
 	case "darwin":
-		cmd = exec.Command("open", url)
+		// 'open' hands the URL to the browser and exits, so its exit status is the result.
+		return exec.Command("open", url).Run()
 	case "linux":
-		cmd = exec.Command("xdg-open", url)
+		return exec.Command("xdg-open", url).Start()
 	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+		return exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
 	}
-	if cmd != nil {
-		_ = cmd.Start()
-	}
+	return fmt.Errorf("no browser launcher for %s", runtime.GOOS)
 }

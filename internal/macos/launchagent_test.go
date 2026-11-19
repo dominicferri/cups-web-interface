@@ -1,6 +1,9 @@
 package macos
 
 import (
+	"encoding/xml"
+	"io"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -25,5 +28,31 @@ func TestGeneratePlist(t *testing.T) {
 	}
 	if !strings.Contains(plist, "<key>WorkingDirectory</key>") {
 		t.Errorf("expected WorkingDirectory key in plist")
+	}
+}
+
+func TestGeneratePlistEscapesPaths(t *testing.T) {
+	plist, err := GeneratePlist("/Users/R&D <lab>/cups-webui", 6310, "127.0.0.1")
+	if err != nil {
+		t.Fatalf("GeneratePlist failed: %v", err)
+	}
+
+	var values []string
+	dec := xml.NewDecoder(strings.NewReader(plist))
+	dec.Strict = true
+	for {
+		tok, err := dec.Token()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("plist is not well-formed XML: %v", err)
+		}
+		if text, ok := tok.(xml.CharData); ok {
+			values = append(values, string(text))
+		}
+	}
+	if !slices.Contains(values, "/Users/R&D <lab>/cups-webui") {
+		t.Errorf("binary path did not survive the XML round trip")
 	}
 }

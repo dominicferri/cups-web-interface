@@ -141,7 +141,16 @@ func (s *Server) handleGetJobs(w http.ResponseWriter, r *http.Request) {
 	if which == "" {
 		which = "active"
 	}
+	if which != "active" && which != "completed" && which != "all" {
+		writeError(w, http.StatusBadRequest, "invalid 'which' value: use active, completed or all")
+		return
+	}
+	// The printer filter becomes an lpstat argument, so it must be a queue name.
 	printer := r.URL.Query().Get("printer")
+	if printer != "" && !cups.IsValidPrinterName(printer) {
+		writeError(w, http.StatusBadRequest, "invalid printer name")
+		return
+	}
 
 	jobs, err := s.adapter.GetJobs(which, printer)
 	if err != nil {
@@ -339,6 +348,10 @@ func (s *Server) handleAddPrinter(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid or untrusted driver model identifier")
 		return
 	}
+	if params.PPDUploadID != "" && !cups.IsValidPPDUploadID(params.PPDUploadID) {
+		writeError(w, http.StatusBadRequest, "invalid PPD upload ID")
+		return
+	}
 
 	if err := s.adapter.AddPrinter(params); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -391,21 +404,32 @@ func (s *Server) handleSetPrinterDriver(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var req struct {
-		Driver string `json:"driver"`
+		Driver      string `json:"driver"`
+		PPDUploadID string `json:"ppd_upload_id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Driver) == "" {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || (strings.TrimSpace(req.Driver) == "" && req.PPDUploadID == "") {
 		writeError(w, http.StatusBadRequest, "driver/ppd identifier is required")
 		return
 	}
 
-	if !cups.IsValidDriverOrPPD(req.Driver) {
-		writeError(w, http.StatusBadRequest, "invalid or untrusted driver model or PPD path: must be a system model or reside in /Library/Printers or /usr/share/cups/model")
-		return
-	}
-
-	if err := s.adapter.SetPrinterDriver(name, req.Driver); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
+	if req.PPDUploadID != "" {
+		if !cups.IsValidPPDUploadID(req.PPDUploadID) {
+			writeError(w, http.StatusBadRequest, "invalid PPD upload ID")
+			return
+		}
+		if err := s.adapter.SetPrinterDriverFromUpload(name, req.PPDUploadID); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	} else {
+		if !cups.IsValidDriverOrPPD(req.Driver) {
+			writeError(w, http.StatusBadRequest, "invalid or untrusted driver model or PPD path: must be a system model or reside in /Library/Printers or /usr/share/cups/model")
+			return
+		}
+		if err := s.adapter.SetPrinterDriver(name, req.Driver); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 	}
 
 	s.events.Broadcast(SSEEvent{Type: "printer_update", Action: "driver_swap", Target: name})
@@ -502,10 +526,32 @@ func (s *Server) handleGetServerSettings(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) handleSetServerSettings(w http.ResponseWriter, r *http.Request) {
-	var settings cups.ServerSettings
-	if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
+	// Pointer fields tell "not sent" from "false", so a partial body keeps the
+	// current value of every setting it leaves out.
+	var body struct {
+		SharePrinters  *bool `json:"share_printers"`
+		RemotePrinters *bool `json:"remote_printers"`
+		DebugLogging   *bool `json:"debug_logging"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
+	}
+
+	current, err := s.adapter.GetServerSettings()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	settings := *current
+	if body.SharePrinters != nil {
+		settings.SharePrinters = *body.SharePrinters
+	}
+	if body.RemotePrinters != nil {
+		settings.RemotePrinters = *body.RemotePrinters
+	}
+	if body.DebugLogging != nil {
+		settings.DebugLogging = *body.DebugLogging
 	}
 
 	if err := s.adapter.SetServerSettings(settings); err != nil {

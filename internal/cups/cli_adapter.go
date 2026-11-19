@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -47,6 +48,25 @@ type CLIAdapter struct {
 	// use when nil; tests can set their own.
 	Accessories *AccessoryManager
 	accOnce     sync.Once
+
+	// PPDUploadDir holds validated PPD uploads. Empty means ~/.cups-webui/ppd-uploads.
+	PPDUploadDir string
+}
+
+func (a *CLIAdapter) ppdUploadDir() (string, error) {
+	if a.PPDUploadDir != "" {
+		return a.PPDUploadDir, nil
+	}
+	return defaultPPDUploadDir()
+}
+
+// uploadedPPDPath resolves an upload ID issued by ValidatePPD to its stored file.
+func (a *CLIAdapter) uploadedPPDPath(uploadID string) (string, error) {
+	dir, err := a.ppdUploadDir()
+	if err != nil {
+		return "", err
+	}
+	return ppdUploadPath(dir, uploadID)
 }
 
 // NewCLIAdapter creates a new CLI-based CUPS adapter.
@@ -80,10 +100,18 @@ func (a *CLIAdapter) runCommand(ctx context.Context, name string, args ...string
 				errStr = cleaned
 			}
 		}
-		return stdout.String(), fmt.Errorf("command %s %v failed: %s", name, args, errStr)
+		return stdout.String(), fmt.Errorf("command %s %s failed: %s", name, redactURICredentials(fmt.Sprint(args)), redactURICredentials(errStr))
 	}
 
 	return stdout.String(), nil
+}
+
+var uriCredentialsRegex = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.-]*://)[^/\s]+@`)
+
+// redactURICredentials replaces the user:password part of any URI in s, so a
+// device URI such as smb://user:pass@host/queue never reaches an error message.
+func redactURICredentials(s string) string {
+	return uriCredentialsRegex.ReplaceAllString(s, "${1}<redacted>@")
 }
 
 // GetPrinters retrieves all printers and classes with their statuses, URIs, and details.
@@ -116,9 +144,13 @@ func (a *CLIAdapter) GetPrinters() ([]Printer, error) {
 		}
 	}
 
+	// 5. Fetch the sharing flag, which lpstat does not report
+	sharing := a.fetchIPPPrinterSharing(ctx)
+
 	// Convert map to sorted slice
 	result := make([]Printer, 0, len(printersMap))
 	for _, p := range printersMap {
+		p.IsShared = sharing[p.Name]
 		if audit, err := InspectPrinterArch(p.Name); err == nil && audit != nil {
 			p.ArchReadiness = &ArchReadiness{
 				Status:          audit.Status,
@@ -170,18 +202,13 @@ func (a *CLIAdapter) GetJobs(which string, printerFilter string) ([]Job, error) 
 		if printerFilter != "" {
 			activeArgs = []string{"-o", printerFilter}
 		}
-		activeOut, _ := a.runCommand(ctx, "lpstat", activeArgs...)
-		activeJobs := ParseJobsOutput(activeOut, "pending")
-		// The first active job for a printer is usually processing
-		seenPrinters := make(map[string]bool)
-		for i := range activeJobs {
-			if !seenPrinters[activeJobs[i].Printer] {
-				activeJobs[i].State = "processing"
-				seenPrinters[activeJobs[i].Printer] = true
-			}
+		activeOut, err := a.runCommand(ctx, "lpstat", activeArgs...)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list active jobs: %w", err)
 		}
-		jobs = append(jobs, activeJobs...)
+		jobs = append(jobs, ParseJobsOutput(activeOut, "pending")...)
 	}
+	activeCount := len(jobs)
 
 	// Fetch completed jobs
 	if which == "completed" || which == "all" {
@@ -189,10 +216,19 @@ func (a *CLIAdapter) GetJobs(which string, printerFilter string) ([]Job, error) 
 		if printerFilter != "" {
 			completedArgs = []string{"-W", "completed", "-o", printerFilter}
 		}
-		completedOut, _ := a.runCommand(ctx, "lpstat", completedArgs...)
+		completedOut, err := a.runCommand(ctx, "lpstat", completedArgs...)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list completed jobs: %w", err)
+		}
 		completedJobs := ParseJobsOutput(completedOut, "completed")
 		jobs = append(jobs, completedJobs...)
 	}
+
+	var ippOut string
+	if len(jobs) > 0 {
+		ippOut = a.fetchIPPJobs(ctx)
+	}
+	applyActiveJobStates(jobs[:activeCount], ParseIPPJobStatesOutput(ippOut))
 
 	// Filter by printer if needed and not already filtered
 	if printerFilter != "" {
@@ -207,7 +243,7 @@ func (a *CLIAdapter) GetJobs(which string, printerFilter string) ([]Job, error) 
 
 	// Enrich job document titles using CUPS IPP if available
 	if len(jobs) > 0 {
-		titles := a.fetchIPPJobTitles(ctx)
+		titles := ParseIPPJobTitlesOutput(ippOut)
 		for i := range jobs {
 			if t, ok := titles[jobs[i].ID]; ok && t != "" {
 				jobs[i].Title = t
@@ -239,8 +275,47 @@ func (a *CLIAdapter) GetJobs(which string, printerFilter string) ([]Job, error) 
 	return jobs, nil
 }
 
-// fetchIPPJobTitles executes ipptool to fetch real document titles and job names.
-func (a *CLIAdapter) fetchIPPJobTitles(ctx context.Context) map[string]string {
+// applyActiveJobStates sets the real CUPS state on each active job and
+// recomputes IsStuck for it. When CUPS reported no states at all (ipptool
+// missing or failed), the first job of each printer is assumed to be processing.
+func applyActiveJobStates(active []Job, states map[string]string) {
+	seenPrinters := make(map[string]bool)
+	for i := range active {
+		j := &active[i]
+		if len(states) == 0 {
+			if !seenPrinters[j.Printer] {
+				j.State = "processing"
+				seenPrinters[j.Printer] = true
+			}
+		} else if s, ok := states[j.ID]; ok {
+			j.State = s
+		}
+		j.IsStuck = isJobStuck(j.State, j.SubmittedAt)
+	}
+}
+
+// fetchIPPPrinterSharing executes ipptool to read printer-is-shared for every queue.
+func (a *CLIAdapter) fetchIPPPrinterSharing(ctx context.Context) map[string]bool {
+	ippReq := "{\n" +
+		"    OPERATION CUPS-Get-Printers\n" +
+		"    GROUP operation-attributes-tag\n" +
+		"    ATTR charset attributes-charset utf-8\n" +
+		"    ATTR naturalLanguage attributes-natural-language en\n" +
+		"    ATTR keyword requested-attributes printer-name,printer-is-shared\n" +
+		"}\n"
+
+	cmd := exec.CommandContext(ctx, "ipptool", "-t", "-v", "ipp://localhost:631/", "/dev/stdin")
+	cmd.Stdin = strings.NewReader(ippReq)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+	return ParseIPPPrinterSharingOutput(string(out))
+}
+
+// fetchIPPJobs executes ipptool to fetch job titles and states. It returns the
+// raw output, or "" when ipptool is unavailable.
+func (a *CLIAdapter) fetchIPPJobs(ctx context.Context) string {
 	ippReq := "{\n" +
 		"    OPERATION Get-Jobs\n" +
 		"    GROUP operation-attributes-tag\n" +
@@ -248,16 +323,16 @@ func (a *CLIAdapter) fetchIPPJobTitles(ctx context.Context) map[string]string {
 		"    ATTR naturalLanguage attributes-natural-language en\n" +
 		"    ATTR uri printer-uri ipp://localhost:631/jobs\n" +
 		"    ATTR keyword which-jobs all\n" +
-		"    ATTR keyword requested-attributes job-id,job-name,document-name-supplied,com.apple.print.JobInfo.PMJobName\n" +
+		"    ATTR keyword requested-attributes job-id,job-name,job-state,document-name-supplied,com.apple.print.JobInfo.PMJobName\n" +
 		"}\n"
 
 	cmd := exec.CommandContext(ctx, "ipptool", "-t", "-v", "ipp://localhost:631/jobs", "/dev/stdin")
 	cmd.Stdin = strings.NewReader(ippReq)
 	out, err := cmd.Output()
 	if err != nil {
-		return nil
+		return ""
 	}
-	return ParseIPPJobTitlesOutput(string(out))
+	return string(out)
 }
 
 // CancelJob cancels a specific job by ID.
@@ -730,6 +805,29 @@ func (a *CLIAdapter) AddPrinter(params AddPrinterParams) error {
 		return fmt.Errorf("invalid or untrusted driver model identifier: %q", params.Model)
 	}
 
+	uploadedPPD := ""
+	if params.PPDUploadID != "" {
+		path, err := a.uploadedPPDPath(params.PPDUploadID)
+		if err != nil {
+			return err
+		}
+		uploadedPPD = path
+	}
+
+	if _, err := a.runCommand(ctx, "lpadmin", addPrinterArgs(params, uploadedPPD)...); err != nil {
+		return fmt.Errorf("failed to create printer: %w", err)
+	}
+
+	// Ensure queue is accepting jobs and enabled
+	_, _ = a.runCommand(ctx, "cupsenable", params.Name)
+	_, _ = a.runCommand(ctx, "cupsaccept", params.Name)
+
+	return nil
+}
+
+// addPrinterArgs builds the lpadmin arguments for AddPrinter. uploadedPPD is
+// the stored file of a validated upload, or "" when the queue uses PPDPath or Model.
+func addPrinterArgs(params AddPrinterParams, uploadedPPD string) []string {
 	args := []string{"-p", params.Name, "-v", params.URI, "-E"}
 	if params.Description != "" {
 		args = append(args, "-D", params.Description)
@@ -743,7 +841,9 @@ func (a *CLIAdapter) AddPrinter(params AddPrinterParams) error {
 		args = append(args, "-o", "printer-is-shared=false")
 	}
 
-	if params.PPDPath != "" {
+	if uploadedPPD != "" {
+		args = append(args, "-P", uploadedPPD)
+	} else if params.PPDPath != "" {
 		args = append(args, "-P", params.PPDPath)
 	} else if params.Model != "" {
 		if filepath.IsAbs(params.Model) {
@@ -752,16 +852,7 @@ func (a *CLIAdapter) AddPrinter(params AddPrinterParams) error {
 			args = append(args, "-m", params.Model)
 		}
 	}
-
-	if _, err := a.runCommand(ctx, "lpadmin", args...); err != nil {
-		return fmt.Errorf("failed to create printer: %w", err)
-	}
-
-	// Ensure queue is accepting jobs and enabled
-	_, _ = a.runCommand(ctx, "cupsenable", params.Name)
-	_, _ = a.runCommand(ctx, "cupsaccept", params.Name)
-
-	return nil
+	return args
 }
 
 // ModifyPrinter updates an existing queue's URI, description, location, and sharing state.
@@ -812,17 +903,30 @@ func (a *CLIAdapter) SetPrinterDriver(name string, modelOrPPD string) error {
 		return fmt.Errorf("invalid or untrusted driver model or PPD path: %q", modelOrPPD)
 	}
 
+	if filepath.IsAbs(modelOrPPD) {
+		return a.setPrinterPPD(name, "-P", modelOrPPD)
+	}
+	return a.setPrinterPPD(name, "-m", modelOrPPD)
+}
+
+// SetPrinterDriverFromUpload swaps the queue's PPD for a file accepted by ValidatePPD.
+func (a *CLIAdapter) SetPrinterDriverFromUpload(name string, uploadID string) error {
+	if !IsValidPrinterName(name) {
+		return fmt.Errorf("invalid printer name: %q", name)
+	}
+	path, err := a.uploadedPPDPath(uploadID)
+	if err != nil {
+		return err
+	}
+	return a.setPrinterPPD(name, "-P", path)
+}
+
+// setPrinterPPD runs lpadmin with the given driver flag ("-m" or "-P") and value.
+func (a *CLIAdapter) setPrinterPPD(name, flag, value string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), a.timeout)
 	defer cancel()
 
-	args := []string{"-p", name}
-	if filepath.IsAbs(modelOrPPD) {
-		args = append(args, "-P", modelOrPPD)
-	} else {
-		args = append(args, "-m", modelOrPPD)
-	}
-
-	if _, err := a.runCommand(ctx, "lpadmin", args...); err != nil {
+	if _, err := a.runCommand(ctx, "lpadmin", "-p", name, flag, value); err != nil {
 		return fmt.Errorf("failed to update printer driver: %w", err)
 	}
 
@@ -1151,10 +1255,10 @@ func (a *CLIAdapter) ValidatePPD(content []byte) (*PPDValidationResult, error) {
 	lines := strings.Split(outStr, "\n")
 	for _, l := range lines {
 		l = strings.TrimSpace(l)
-		if strings.HasPrefix(l, "WARN:") {
-			warnings = append(warnings, strings.TrimPrefix(l, "WARN: "))
-		} else if strings.HasPrefix(l, "FAIL:") {
-			errors = append(errors, strings.TrimPrefix(l, "FAIL: "))
+		if msg, ok := cupstestppdMessage(l, "WARN"); ok {
+			warnings = append(warnings, msg)
+		} else if msg, ok := cupstestppdMessage(l, "FAIL"); ok {
+			errors = append(errors, msg)
 		}
 	}
 
@@ -1177,12 +1281,39 @@ func (a *CLIAdapter) ValidatePPD(content []byte) (*PPDValidationResult, error) {
 
 	valid := runErr == nil && len(errors) == 0
 
+	uploadID := ""
+	if valid {
+		dir, err := a.ppdUploadDir()
+		if err != nil {
+			return nil, fmt.Errorf("failed to locate PPD upload folder: %w", err)
+		}
+		if uploadID, err = savePPDUpload(dir, content); err != nil {
+			return nil, fmt.Errorf("failed to store validated PPD: %w", err)
+		}
+	}
+
 	return &PPDValidationResult{
 		Valid:    valid,
 		Model:    model,
 		Warnings: warnings,
 		Errors:   errors,
+		UploadID: uploadID,
 	}, nil
+}
+
+// cupstestppdMessage extracts the text of a cupstestppd report line of the
+// given level ("WARN" or "FAIL"). cupstestppd prints `WARN    text` and
+// `**FAIL**  text`; the `WARN: text` form is accepted too. A line that is only
+// the per-file verdict (`/path/file.ppd: FAIL`) carries no message.
+func cupstestppdMessage(line, level string) (string, bool) {
+	for _, prefix := range []string{"**" + level + "**", level + ":", level + " "} {
+		if rest, ok := strings.CutPrefix(line, prefix); ok {
+			if msg := strings.TrimSpace(rest); msg != "" {
+				return msg, true
+			}
+		}
+	}
+	return "", false
 }
 
 // GetServerSettings fetches global cupsctl configurations.
@@ -1345,16 +1476,21 @@ func (a *CLIAdapter) ManageLaunchAgent(action string) error {
 	if err != nil {
 		binPath = os.Args[0]
 	}
-	switch strings.ToLower(action) {
-	case "install":
-		port := a.ListenPort
-		if port == 0 {
-			port = 6310
-		}
-		return macos.Install(binPath, port, "127.0.0.1")
-	case "uninstall":
-		return macos.Uninstall()
-	default:
+	action = strings.ToLower(action)
+	if action != "install" && action != "uninstall" {
 		return fmt.Errorf("unknown LaunchAgent action: %q (expected 'install' or 'uninstall')", action)
 	}
+	port := a.ListenPort
+	if port == 0 {
+		port = 6310
+	}
+	// When this server is the LaunchAgent, the action stops this process, so a
+	// helper outside the launchd job carries it out.
+	if macos.IsLaunchAgentProcess() {
+		return macos.RunDetached(binPath, action, port)
+	}
+	if action == "install" {
+		return macos.Install(binPath, port, "127.0.0.1")
+	}
+	return macos.Uninstall()
 }
