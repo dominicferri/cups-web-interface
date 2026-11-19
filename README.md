@@ -31,6 +31,10 @@ The file shows the PaperCut icon after its first run. Git and zip downloads do n
 
 To remove the service: `./bin/cups-webui launchagent uninstall`
 
+### Xerox drivers (optional)
+
+Put the Xerox macOS driver image in `drivers/`, named as Xerox ships it (`XeroxDrivers_<version>_<build>.dmg`). After the web interface opens, the installer compares that version with the installed one and offers to install it. The install asks for an administrator password. The image is not kept in this repository; download it from the Xerox support page for your printer model.
+
 ---
 
 ## Quick Start

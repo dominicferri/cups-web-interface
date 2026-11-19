@@ -17,3 +17,6 @@ temp_*
 # Internal docs (not published)
 [Ss]ecurity_architecture.md
 spec.md
+
+# Vendor driver images (licensed by the vendor; add your own copy)
+drivers/*.dmg
