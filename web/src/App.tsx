@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from './api/client';
 import type { Printer, Job, SystemStatus } from './types/cups';
 import { Navbar } from './components/Navbar';
@@ -63,9 +63,13 @@ export function App() {
     setDarkMode(next);
   };
 
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
-    setTimeout(() => {
+    // Cancel the previous toast's timer so it cannot hide this one early.
+    clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => {
       setToast(null);
     }, 3500);
   };
@@ -230,7 +234,7 @@ export function App() {
 
   const handlePrintTestPage = async (printerName: string) => {
     try {
-      const jobId = await api.printTestPage(printerName);
+      const { job_id: jobId } = await api.printTestPage(printerName);
       showToast(`Diagnostic test page sent to "${printerName}" (CUPS Job #${jobId})`);
       await fetchData(false);
     } catch (err: unknown) {

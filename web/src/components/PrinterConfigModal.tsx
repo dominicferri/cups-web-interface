@@ -202,7 +202,8 @@ export const PrinterConfigModal: React.FC<PrinterConfigModalProps> = ({
         uri: detailsURI.trim(),
         description: detailsDescription.trim(),
         location: detailsLocation.trim(),
-        shared: detailsShared,
+        // Sent only when changed, so saving other details never alters sharing.
+        shared: detailsShared !== (printer.is_shared || false) ? detailsShared : undefined,
       };
       await api.modifyPrinter(printer.name, params);
       setSuccessMessage('Queue details updated successfully!');
@@ -244,13 +245,18 @@ export const PrinterConfigModal: React.FC<PrinterConfigModalProps> = ({
     setSuccessMessage(null);
 
     try {
-      const targetDriver = selectedDriver ? selectedDriver.name : (uploadedPPD ? uploadedPPD.name : '');
+      const uploadId = !selectedDriver && uploadedPPD && ppdValidation?.valid ? ppdValidation.upload_id : undefined;
+      const targetDriver = selectedDriver ? selectedDriver.name : (uploadId && uploadedPPD ? uploadedPPD.name : '');
       if (!targetDriver) {
-        setError('Please select a driver from the catalog or upload a custom PPD.');
+        setError('Please select a driver from the catalog or upload a valid custom PPD.');
         setSaving(false);
         return;
       }
-      await api.setPrinterDriver(printer.name, targetDriver);
+      if (uploadId) {
+        await api.setPrinterDriverFromUpload(printer.name, uploadId);
+      } else {
+        await api.setPrinterDriver(printer.name, targetDriver);
+      }
       setSuccessMessage(`Driver updated to "${targetDriver}"!`);
       // The new PPD changes the audit, the default options and the
       // accessories (manual values were re-applied by the server): reload all.

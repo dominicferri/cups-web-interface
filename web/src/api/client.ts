@@ -304,6 +304,15 @@ export const api = {
     return handleResponse<void>(res);
   },
 
+  async setPrinterDriverFromUpload(name: string, uploadId: string): Promise<void> {
+    const res = await apiFetch(`${API_BASE}/printers/${encodeURIComponent(name)}/driver`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ppd_upload_id: uploadId }),
+    });
+    return handleResponse<void>(res);
+  },
+
   async printTestPage(name: string): Promise<{ status: string; message: string; job_id: string }> {
     const res = await apiFetch(`${API_BASE}/printers/${encodeURIComponent(name)}/test-page`, {
       method: 'POST',
