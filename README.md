@@ -156,7 +156,7 @@ This repository is the PaperCut CUPS WebUI with a double-click installer added f
 
 - The CUPS Adapter Layer is the base of the project. The HTTP API Layer has 142 links into it, which is three times the next largest arrow.
 - 'IsValidPrinterName' in 'internal/cups/validation.go' is called 34 times, more than twice the next function.
-- The frontend and the Go code do not import each other. The only link between them is 'web/vite.config.ts', which configures 'internal/web/embed.go'.
+- The frontend and the Go code do not import each other. In the diagram the only link between them is 'web/vite.config.ts', which configures 'internal/web/embed.go'. At run time the frontend calls the Go API over HTTP from 'web/src/api/client.ts', and the graph does not draw that.
 - 'cmd/cups-webui/main.go' has 36 outgoing links, the most of any file.
 - The Go and TypeScript source arrived in the first commit. The later commits changed the installer, the documents, '.gitignore' and the driver image.
 
@@ -401,7 +401,7 @@ Go is 12,250 lines in 37 files and TypeScript is 6,651 lines in 20 files. The 'i
 
 Every commit is from 2026-11-19. After the first commit the changes are to the installer and the documents, because the new work in this repository is the installer.
 
-6 commits, 2026-11-19.
+7 commits, 2026-11-19.
 
 | Hotspot | Commits | Lines |
 |---|---:|---:|
