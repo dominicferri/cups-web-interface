@@ -186,7 +186,7 @@ export const AddPrinterModal: React.FC<AddPrinterModalProps> = ({
       return;
     }
 
-    if (driverMode === 'upload' && (!ppdValidation || !ppdValidation.valid)) {
+    if (driverMode === 'upload' && (!ppdValidation || !ppdValidation.valid || !ppdValidation.upload_id)) {
       setError('A valid custom PPD file must be uploaded and pass Adobe specification checks.');
       return;
     }
@@ -201,6 +201,7 @@ export const AddPrinterModal: React.FC<AddPrinterModalProps> = ({
         shared: shared,
         model: driverMode === 'catalog' && selectedDriver ? selectedDriver.name : undefined,
         make: driverMode === 'catalog' && selectedDriver ? selectedDriver.make : undefined,
+        ppd_upload_id: driverMode === 'upload' ? ppdValidation?.upload_id : undefined,
       };
 
       await api.addPrinter(params);

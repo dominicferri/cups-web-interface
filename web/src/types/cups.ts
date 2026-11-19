@@ -195,6 +195,8 @@ export interface AddPrinterParams {
   make?: string;
   model?: string;
   ppd_path?: string;
+  /** upload_id of a PPD accepted by the validate endpoint. */
+  ppd_upload_id?: string;
 }
 
 export interface ModifyPrinterParams {
@@ -216,6 +218,8 @@ export interface PPDValidationResult {
   model: string;
   warnings: string[];
   errors: string[];
+  /** Set for a valid PPD; names the stored file when adding a printer or swapping a driver. */
+  upload_id?: string;
 }
 
 export interface ServerSettings {
