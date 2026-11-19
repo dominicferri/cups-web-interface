@@ -197,7 +197,7 @@ flowchart TD
 
 ### Dependencies
 
-The graph shows 48 of the 71 files. 'web/src/types/cups.ts' has the highest fan-in at 15, and on the Go side 'internal/cups/validation.go' has 14.
+'web/src/types/cups.ts' has the highest fan-in at 15, and on the Go side 'internal/cups/validation.go' has 14.
 
 The 24 most connected of 71 files.
 
@@ -401,7 +401,7 @@ Go is 12,250 lines in 37 files and TypeScript is 6,651 lines in 20 files. The 'i
 
 Every commit is from 2026-11-19. After the first commit the changes are to the installer and the documents, because the new work in this repository is the installer.
 
-5 commits, 2026-11-19.
+6 commits, 2026-11-19.
 
 | Hotspot | Commits | Lines |
 |---|---:|---:|
