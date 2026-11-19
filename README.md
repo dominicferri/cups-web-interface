@@ -15,7 +15,7 @@ Designed specifically to address UX barriers in macOS and UNIX environments:
 
 ## One-Click Install (unofficial packaging)
 
-This copy adds `Install CUPS WebUI.command` to the upstream project, [PaperCutSoftware/cups-web-interface](https://github.com/PaperCutSoftware/cups-web-interface). It is not published or supported by PaperCut. The PaperCut name and logo are trademarks of PaperCut Software.
+This copy adds `Install CUPS WebUI.command` and a set of bug and security fixes (see [CHANGELOG.md](./CHANGELOG.md)) to the upstream project, [PaperCutSoftware/cups-web-interface](https://github.com/PaperCutSoftware/cups-web-interface). It is not published or supported by PaperCut. The PaperCut name and logo are trademarks of PaperCut Software.
 
 1. Download the folder and keep its contents together.
 2. Double-click `Install CUPS WebUI.command`.
@@ -33,7 +33,69 @@ To remove the service: `./bin/cups-webui launchagent uninstall`
 
 ### Xerox drivers (optional)
 
-`drivers/` holds the Xerox macOS driver image, named as Xerox ships it (`XeroxDrivers_<version>_<build>.dmg`). After the web interface opens, the installer compares that version with the installed one and offers to install it. The install asks for an administrator password. The image is Xerox software under the Xerox license, signed and notarized by Xerox Corporation. To update it, replace the file with a newer download from the Xerox support page for your printer model.
+`drivers/` holds the Xerox macOS driver image, named as Xerox ships it (`XeroxDrivers_<version>_<build>.dmg`). After the web interface opens, the installer compares that version with the installed one and offers to install it only when the bundled version is newer. When `drivers/` holds more than one image, the installer uses the one with the highest version. The install asks for an administrator password. The image is Xerox software under the Xerox license, signed and notarized by Xerox Corporation. To update it, replace the file with a newer download from the Xerox support page for your printer model.
+
+---
+
+## Fixes in This Copy
+
+This copy differs from the upstream source. A code review found 19 defects, and all 19 are fixed here: 12 functional bugs and 7 security weaknesses. [CHANGELOG.md](./CHANGELOG.md) has the dated list.
+
+### Functional fixes
+
+| Area | Before | Now |
+| :--- | :--- | :--- |
+| Printer sharing | Saving queue details turned sharing off. The server never read the sharing flag from CUPS, so the form started with sharing off and sent that value back. | The server reads `printer-is-shared` for every queue with one `ipptool` request. The form sends the flag only when you change it. |
+| Custom PPD upload | Add Printer and the driver swap validated an uploaded PPD and then dropped it. The queue was created with no driver, and the driver swap sent only the file name. | A valid upload is stored and installed with `lpadmin -P`. See [Custom PPD uploads](#custom-ppd-uploads). |
+| Job age | `lpstat` prints local time, and the server read it as UTC. West of UTC every active job looked hours old and was marked as stuck. | Job times are read as local time. |
+| Held jobs | Every active job was "pending", and the first job of each queue was forced to "processing". A held job never showed as held, so **Release** never appeared. | Job states come from CUPS (`job-state`). The old guess is used only when `ipptool` gives no answer. A held job is not counted as stuck. |
+| Live updates | The server's 15-second write timeout closed the event stream every 15 seconds. The 5-second poll hid the problem. | The event stream has no write deadline and stays connected. |
+| Job list errors | A failed `lpstat` call showed as an empty job list. | The request returns an error, and the page shows it. |
+| PPD validation | The page said "invalid" with no reason, because the server looked for `FAIL:` and `WARN:` and `cupstestppd` prints `**FAIL**` and `WARN`. | The reasons from `cupstestppd` are shown. |
+| Test page message | The message showed `Job #[object Object]`. | It shows the job number. |
+| Messages | A new message could disappear after half a second, because the timer of the previous message cleared it. | Each new message cancels the earlier timer. |
+| Service reinstall | The installer stopped the old service and deleted its binary before the new one was in place. A failed copy left no working service. Install and uninstall from the web page also stopped the process that was handling the request. | The new binary is staged first and replaces the old one in one rename. From the web page, a separate helper process does the work. |
+| LaunchAgent plist | A path with `&` or `<` in it gave an invalid plist. | Every value is XML-escaped. |
+| `cups-webui open` | It exited with status 0 when the browser could not be opened, so the installer could not report that. | It exits with status 1 and prints the error. |
+| Installer, driver image | With two images, `5.9.0` was chosen over `5.20.0`. Newer installed drivers got an offer to downgrade. An image with no package ran `sudo installer` with an empty path. | Versions are compared as versions. The offer appears only for a newer bundled version. An image with no package stops with a clear message. |
+
+### Security fixes
+
+| Area | Before | Now |
+| :--- | :--- | :--- |
+| Session token in the log | At start the server printed the sign-in link, which holds the token. Under launchd that went to `~/Library/Logs/com.papercut.cups-webui.stdout.log`. | The link is printed only when the output is a terminal. |
+| Loopback only | `-host 0.0.0.0` was accepted and put the admin API on the network. `Host: 0.0.0.0` was an accepted header. `-host ::1` failed to bind. | The server stops at start unless `-host` is `127.0.0.1`, `::1` or `localhost`. `0.0.0.0` is refused as a `Host` header. `::1` works. |
+| Jobs request | The `printer` value of `GET /api/v1/jobs` went to `lpstat` unchecked. A value such as `-hother.host` was read as an option. | `printer` must be a valid queue name and `which` must be `active`, `completed` or `all`. Anything else returns 400. |
+| Passwords in errors | A failed command returned its full argument list, so `smb://user:password@server/queue` showed the password on the page. | The user name and password of any address in an error message are replaced with `<redacted>`. |
+| PPD safety scan | The scan for `*FoomaticRIPCommandLine` and untrusted filter paths stopped without an error at the first line longer than 64 KB. A file with CR-only line endings was read as one line. | The scan reads lines of any length and both line endings. |
+| Token lifetime | After a crash the next start reused the token left in `~/.cups-webui/session.json`. | Every start generates a new token. An open page signs in again by itself. |
+| Server settings | A settings request that left a field out turned that setting off. | A field that is not sent keeps its current value. |
+
+### Custom PPD uploads
+
+1. The page sends the file to `POST /api/v1/ppds/validate`.
+2. The server runs `cupstestppd` and its own scan for dangerous directives. The file must pass both.
+3. A file that passes is stored in `~/.cups-webui/ppd-uploads/` under a random 32-character ID. The folder is readable only by your account. The response holds that ID as `upload_id`.
+4. Add Printer and the driver swap send the ID as `ppd_upload_id`. The server finds the stored file and passes it to `lpadmin -P`.
+
+The page never sends a file path, so the list of allowed PPD folders is unchanged. A stored upload is removed after one hour, the next time a file is uploaded.
+
+### How the fixes were checked
+
+- Unit tests cover each fix. They are in `internal/api/review_fixes_test.go`, `internal/cups/review_fixes_test.go` and `internal/macos/launchagent_test.go`.
+- The upstream binary and the new binary were run side by side against the same CUPS server. The upstream binary showed each of these faults and the new binary did not: the event stream cut at 15 seconds, the unchecked `printer` value, the empty job list for a failed `lpstat`, `-host 0.0.0.0`, `-host ::1`, the token in redirected output, the missing PPD failure reason, the dropped PPD upload, and the exit status of `open`.
+- A browser run in mock mode covered Add Printer with an uploaded PPD, the driver swap with an uploaded PPD, both message fixes, and sharing staying on after a save.
+
+These parts have tests but were not run against a real system:
+
+- Creating a real queue from an uploaded PPD with `lpadmin -P`.
+- Reinstall and uninstall from the web page while the server runs as the login service.
+- The driver package install in the installer.
+- Sharing, held jobs and stuck jobs on a CUPS server that has a shared queue or an active job.
+
+### Known issue
+
+`web/index.html` has an inline script that sets the theme before the page loads. The server's Content-Security-Policy (`script-src 'self'`) blocks it, and the browser console shows one error on each load. The page still works. This is the same in the upstream source and is not fixed here.
 
 ---
 
@@ -101,7 +163,7 @@ The **Hardware Accessories** tab lists the queue's installable options, installe
 | Flag | Default | Description |
 | :--- | :--- | :--- |
 | `-port` | `6310` | Port to listen on |
-| `-host` | `127.0.0.1` | Host interface to bind to. Only loopback is supported |
+| `-host` | `127.0.0.1` | Host interface to bind to. Only loopback addresses (`127.0.0.1`, `::1`, `localhost`) are accepted; any other value stops the server at start |
 | `-mock` | `false` | Run with simulated CUPS mock data |
 | `-open` | `false` | Automatically open default browser on launch |
 
@@ -139,6 +201,17 @@ Run the Go test suite:
 make test
 ```
 
+**`make test` changes the CUPS settings of the Mac it runs on.** Three tests call the real `lpadmin` and `lpoptions` commands:
+
+- `TestCLIAdapterSetDefaultPrinter` makes the first queue (in name order) the system default printer and writes `~/.cups/lpoptions`.
+- `TestCLIAdapterSetPrinterOptions` sets the first option of that queue to its first choice.
+- `TestCLIAdapterAddAndRemoveKyoceraPrinter` adds and deletes a test queue when a Kyocera driver is installed.
+
+To run every other test and leave CUPS alone:
+```bash
+go test ./... -skip 'TestCLIAdapter(AddAndRemoveKyoceraPrinter|SetDefaultPrinter|SetPrinterOptions)'
+```
+
 ---
 
 ## Architecture
@@ -158,7 +231,7 @@ This repository is the PaperCut CUPS WebUI with a double-click installer added f
 - 'IsValidPrinterName' in 'internal/cups/validation.go' is called 34 times, more than twice the next function.
 - The frontend and the Go code do not import each other. In the diagram the only link between them is 'web/vite.config.ts', which configures 'internal/web/embed.go'. At run time the frontend calls the Go API over HTTP from 'web/src/api/client.ts', and the graph does not draw that.
 - 'cmd/cups-webui/main.go' has 36 outgoing links, the most of any file.
-- The Go and TypeScript source arrived in the first commit. The later commits changed the installer, the documents, '.gitignore' and the driver image.
+- The Go and TypeScript source arrived in the first commit. The commits after it changed the installer, the documents, '.gitignore' and the driver image, until the fixes listed under "Fixes in This Copy" changed the Go and TypeScript source.
 
 ### Architecture
 
@@ -399,7 +472,7 @@ Go is 12,250 lines in 37 files and TypeScript is 6,651 lines in 20 files. The 'i
 
 ### History
 
-Every commit is from 2026-11-19. After the first commit the changes are to the installer and the documents, because the new work in this repository is the installer.
+Every commit is from 2026-11-19. The numbers in this section and in the Composition section were measured before the fixes listed under "Fixes in This Copy". Up to that point the changes after the first commit are to the installer and the documents.
 
 7 commits, 2026-11-19.
 
