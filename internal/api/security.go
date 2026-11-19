@@ -35,6 +35,16 @@ func (s *Server) SetToken(token string) {
 	s.token = token
 }
 
+// IsLoopbackHost reports whether host, a -host flag value, names a loopback
+// address. The server refuses to bind to anything else.
+func IsLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 // isAllowedHost verifies that the Host header matches a loopback or local binding address.
 func (s *Server) isAllowedHost(hostHeader string) bool {
 	h := hostHeader
@@ -43,7 +53,7 @@ func (s *Server) isAllowedHost(hostHeader string) bool {
 	}
 	h = strings.Trim(h, "[]")
 	switch strings.ToLower(h) {
-	case "127.0.0.1", "localhost", "::1", "0.0.0.0":
+	case "127.0.0.1", "localhost", "::1":
 		return true
 	default:
 		return false

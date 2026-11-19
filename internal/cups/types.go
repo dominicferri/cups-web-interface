@@ -156,6 +156,9 @@ type AddPrinterParams struct {
 	Make        string `json:"make"`
 	Model       string `json:"model"`
 	PPDPath     string `json:"ppd_path"`
+	// PPDUploadID names a PPD file accepted by ValidatePPD. It takes
+	// precedence over PPDPath and Model.
+	PPDUploadID string `json:"ppd_upload_id,omitempty"`
 }
 
 // ModifyPrinterParams holds fields for updating an existing print queue.
@@ -185,6 +188,9 @@ type PPDValidationResult struct {
 	Model    string   `json:"model"`
 	Warnings []string `json:"warnings"`
 	Errors   []string `json:"errors"`
+	// UploadID is set for a valid PPD. Pass it to AddPrinter or
+	// SetPrinterDriverFromUpload to install the uploaded file.
+	UploadID string `json:"upload_id,omitempty"`
 }
 
 // ServerSettings holds global CUPS configuration toggles managed via cupsctl.
@@ -212,6 +218,7 @@ type Adapter interface {
 	AddPrinter(params AddPrinterParams) error
 	ModifyPrinter(name string, params ModifyPrinterParams) error
 	SetPrinterDriver(name string, modelOrPPD string) error
+	SetPrinterDriverFromUpload(name string, uploadID string) error
 	PrintTestPage(name string) (string, error)
 	GetDrivers(search string) ([]DriverInfo, error)
 	ValidatePPD(content []byte) (*PPDValidationResult, error)

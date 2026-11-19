@@ -1,7 +1,6 @@
 package cups
 
 import (
-	"bufio"
 	"bytes"
 	"fmt"
 	"path/filepath"
@@ -301,9 +300,10 @@ func IsValidOptionValue(val string) bool {
 // InspectDangerousPPDDirectives scans raw PPD content for dangerous directives such as
 // *FoomaticRIPCommandLine (CVE-2024-47176) and unapproved *cupsFilter paths.
 func InspectDangerousPPDDirectives(content []byte) (warnings []string, errors []string) {
-	scanner := bufio.NewScanner(bytes.NewReader(content))
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
+	// Split on both line endings, with no line length limit, so that neither a
+	// very long line nor a CR-only file can hide a directive from the scan.
+	for _, raw := range bytes.FieldsFunc(content, func(r rune) bool { return r == '\n' || r == '\r' }) {
+		line := strings.TrimSpace(string(raw))
 		if strings.HasPrefix(line, "*FoomaticRIPCommandLine") {
 			errors = append(errors, "PPD contains prohibited *FoomaticRIPCommandLine directive (associated with remote command execution risks)")
 		}

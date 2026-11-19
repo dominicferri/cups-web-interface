@@ -227,7 +227,8 @@ func ParseJobsOutput(output string, defaultState string) []Job {
 		rawDate := strings.Join(fields[3:], " ")
 		var submittedAt time.Time
 		for _, layout := range dateFormats {
-			if t, err := time.Parse(layout, rawDate); err == nil {
+			// lpstat prints local time without a zone.
+			if t, err := time.ParseInLocation(layout, rawDate, time.Local); err == nil {
 				submittedAt = t
 				break
 			}
@@ -236,15 +237,6 @@ func ParseJobsOutput(output string, defaultState string) []Job {
 		state := defaultState
 		if state == "" {
 			state = "pending"
-		}
-
-		// Stuck job heuristic:
-		// If job has been processing or pending for more than 10 minutes, mark as potentially stuck
-		isStuck := false
-		if !submittedAt.IsZero() && (state == "processing" || state == "pending") {
-			if time.Since(submittedAt) > 10*time.Minute {
-				isStuck = true
-			}
 		}
 
 		jobs = append(jobs, Job{
@@ -256,11 +248,81 @@ func ParseJobsOutput(output string, defaultState string) []Job {
 			SizeBytes:   sizeBytes,
 			SubmittedAt: submittedAt,
 			RawDate:     rawDate,
-			IsStuck:     isStuck,
+			IsStuck:     isJobStuck(state, submittedAt),
 		})
 	}
 
 	return jobs
+}
+
+// isJobStuck reports whether a job has been processing or pending for more than 10 minutes.
+func isJobStuck(state string, submittedAt time.Time) bool {
+	if submittedAt.IsZero() || (state != "processing" && state != "pending") {
+		return false
+	}
+	return time.Since(submittedAt) > 10*time.Minute
+}
+
+// parseIPPGroups splits `ipptool -t -v` output into one attribute map per
+// "-- separator --" group. Keys are attribute names without the "(type)" suffix.
+func parseIPPGroups(output string) []map[string]string {
+	var groups []map[string]string
+	current := map[string]string{}
+	flush := func() {
+		if len(current) > 0 {
+			groups = append(groups, current)
+		}
+		current = map[string]string{}
+	}
+	for _, raw := range strings.Split(output, "\n") {
+		line := strings.TrimSpace(raw)
+		if strings.HasPrefix(line, "-- separator --") {
+			flush()
+			continue
+		}
+		key, val, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		name, _, _ := strings.Cut(strings.TrimSpace(key), " ")
+		current[name] = strings.TrimSpace(val)
+	}
+	flush()
+	return groups
+}
+
+// ParseIPPJobStatesOutput parses `ipptool` Get-Jobs output into a map of numeric
+// job ID to the state of an active job: "pending", "held" or "processing".
+// Jobs in any other IPP state are left out.
+func ParseIPPJobStatesOutput(output string) map[string]string {
+	states := make(map[string]string)
+	for _, g := range parseIPPGroups(output) {
+		id := g["job-id"]
+		if id == "" {
+			continue
+		}
+		switch g["job-state"] {
+		case "pending":
+			states[id] = "pending"
+		case "pending-held":
+			states[id] = "held"
+		case "processing", "processing-stopped":
+			states[id] = "processing"
+		}
+	}
+	return states
+}
+
+// ParseIPPPrinterSharingOutput parses `ipptool` CUPS-Get-Printers output into a
+// map of queue name to its printer-is-shared value.
+func ParseIPPPrinterSharingOutput(output string) map[string]bool {
+	shared := make(map[string]bool)
+	for _, g := range parseIPPGroups(output) {
+		if name := g["printer-name"]; name != "" {
+			shared[name] = g["printer-is-shared"] == "true"
+		}
+	}
+	return shared
 }
 
 // ParseCupsctlOutput parses key-value pairs from `cupsctl` output.

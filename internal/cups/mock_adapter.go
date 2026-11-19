@@ -2,6 +2,8 @@ package cups
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"sort"
 	"strings"
@@ -21,6 +23,8 @@ type MockAdapter struct {
 	mockDrivers          []DriverInfo
 	launchAgentInstalled bool
 	logs                 []LogEntry
+	// ppdUploads maps an upload ID issued by ValidatePPD to the PPD's model name.
+	ppdUploads map[string]string
 
 	// Accessories handles manually set installable options (in memory).
 	Accessories *AccessoryManager
@@ -1067,6 +1071,11 @@ func (m *MockAdapter) AddPrinter(params AddPrinterParams) error {
 	if _, exists := m.printers[params.Name]; exists {
 		return fmt.Errorf("printer %q already exists", params.Name)
 	}
+	if params.PPDUploadID != "" {
+		if _, ok := m.ppdUploads[params.PPDUploadID]; !ok {
+			return fmt.Errorf("uploaded PPD not found or expired; upload the file again")
+		}
+	}
 
 	info := params.Description
 	if info == "" {
@@ -1233,6 +1242,17 @@ func (m *MockAdapter) SetPrinterDriver(name string, modelOrPPD string) error {
 	return nil
 }
 
+// SetPrinterDriverFromUpload updates a printer's driver to a PPD accepted by ValidatePPD.
+func (m *MockAdapter) SetPrinterDriverFromUpload(name string, uploadID string) error {
+	m.mu.RLock()
+	model, ok := m.ppdUploads[uploadID]
+	m.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("uploaded PPD not found or expired; upload the file again")
+	}
+	return m.SetPrinterDriver(name, model)
+}
+
 // PrintTestPage generates a mock test page print job.
 func (m *MockAdapter) PrintTestPage(name string) (string, error) {
 	m.mu.Lock()
@@ -1314,11 +1334,24 @@ func (m *MockAdapter) ValidatePPD(content []byte) (*PPDValidationResult, error) 
 		}
 	}
 
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return nil, err
+	}
+	uploadID := hex.EncodeToString(b)
+	m.mu.Lock()
+	if m.ppdUploads == nil {
+		m.ppdUploads = make(map[string]string)
+	}
+	m.ppdUploads[uploadID] = model
+	m.mu.Unlock()
+
 	return &PPDValidationResult{
 		Valid:    true,
 		Model:    model,
 		Warnings: []string{},
 		Errors:   []string{},
+		UploadID: uploadID,
 	}, nil
 }
 
