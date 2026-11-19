@@ -229,13 +229,15 @@ This repository is the PaperCut CUPS WebUI with a double-click installer added f
 
 - The CUPS Adapter Layer is the base of the project. The HTTP API Layer has 142 links into it, which is three times the next largest arrow.
 - 'IsValidPrinterName' in 'internal/cups/validation.go' is called 34 times, more than twice the next function.
-- The frontend and the Go code do not import each other. In the diagram the only link between them is 'web/vite.config.ts', which configures 'internal/web/embed.go'. At run time the frontend calls the Go API over HTTP from 'web/src/api/client.ts', and the graph does not draw that.
+- The frontend and the Go code do not import each other. In the full graph the only link between them is 'web/vite.config.ts', which configures 'internal/web/embed.go'. At run time the frontend calls the Go API over HTTP from 'web/src/api/client.ts', and the graph does not draw that.
 - 'cmd/cups-webui/main.go' has 36 outgoing links, the most of any file.
 - The Go and TypeScript source arrived in the first commit. The commits after it changed the installer, the documents, '.gitignore' and the driver image, until the fixes listed under "Fixes in This Copy" changed the Go and TypeScript source.
 
 ### Architecture
 
 The arrow to look at goes from the HTTP API Layer to the CUPS Adapter Layer: 114 imports and 28 calls. The CUPS Adapter Layer has only 6 links out, 5 to macOS Platform Services and 1 test link to the HTTP API Layer.
+
+The 8 strongest of 19 links between layers.
 
 ```mermaid
 flowchart TD
@@ -255,202 +257,47 @@ flowchart TD
   L3 -->|7| L2
   L0 -->|5| L5
   L3 -->|5| L1
-  L3 -->|5| L7
-  L4 -->|5| L3
-  L4 -->|5| L7
-  L7 -->|5| L5
-  L3 -->|4| L0
-  L3 -->|3| L5
-  L4 -->|3| L0
-  L4 -->|3| L1
-  L4 -->|2| L2
-  L4 -->|1| L5
-  L7 -->|1| L0
 ```
 
 ### Dependencies
 
 'web/src/types/cups.ts' has the highest fan-in at 15, and on the Go side 'internal/cups/validation.go' has 14.
 
-The 24 most connected of 71 files.
+9 of 71 files: the most connected ones, test files left out, joined by the 16 strongest of the 29 links between them.
 
 ```mermaid
 flowchart LR
   subgraph G0["HTTP API Layer"]
     direction TB
-    N1["api_test.go"]
     N2["api.go"]
-    N3["peer_test.go"]
-    N4["accessories_test.go"]
     N5["accessories.go"]
     N6["handlers.go"]
   end
   N0["main.go"]
   N12["App.tsx"]
-  N9["Makefile"]
-  N14["README.md"]
   N13["cups.ts"]
   subgraph G7["CUPS Adapter Layer"]
     direction TB
     N7["cli_adapter.go"]
-    N8["accessories_test.go"]
     N10["accessories.go"]
     N11["validation.go"]
-    N15["accessory_store.go"]
-    N16["mock_adapter.go"]
-    N17["cli_accessories.go"]
-    N18["diagnostics.go"]
-    N19["parser_test.go"]
-    N20["ppd_installable.go"]
-    N21["arch_inspector.go"]
-    N22["cli_adapter_test.go"]
-    N23["diagnostics_test.go"]
   end
-  N0 --> N1
-  N0 --> N2
-  N0 --> N3
-  N0 --> N4
-  N0 --> N5
-  N0 --> N6
-  N0 --> N7
-  N0 --> N8
-  N0 --> N10
-  N0 --> N11
-  N0 --> N15
-  N0 --> N16
-  N0 --> N17
-  N0 --> N18
-  N0 --> N19
-  N0 --> N20
-  N0 --> N21
-  N0 --> N22
-  N0 --> N23
-  N1 --> N7
-  N1 --> N8
-  N1 --> N10
-  N1 --> N11
-  N1 --> N15
-  N1 --> N16
-  N1 --> N17
-  N1 --> N18
-  N1 --> N19
-  N1 --> N20
-  N1 --> N21
-  N1 --> N22
-  N1 --> N23
-  N2 --> N1
-  N2 --> N3
-  N2 --> N7
-  N2 --> N8
-  N2 --> N10
-  N2 --> N11
-  N2 --> N15
-  N2 --> N16
-  N2 --> N17
-  N2 --> N18
-  N2 --> N19
-  N2 --> N20
-  N2 --> N21
-  N2 --> N22
-  N2 --> N23
-  N3 --> N2
-  N3 --> N7
-  N3 --> N8
-  N3 --> N10
-  N3 --> N11
-  N3 --> N15
-  N3 --> N16
-  N3 --> N17
-  N3 --> N18
-  N3 --> N19
-  N3 --> N20
-  N3 --> N21
-  N3 --> N22
-  N3 --> N23
-  N4 --> N7
-  N4 --> N8
-  N4 --> N10
-  N4 --> N11
-  N4 --> N15
-  N4 --> N16
-  N4 --> N17
-  N4 --> N18
-  N4 --> N19
-  N4 --> N20
-  N4 --> N21
-  N4 --> N22
-  N4 --> N23
-  N5 --> N4
-  N5 --> N7
-  N5 --> N8
-  N5 --> N10
-  N5 --> N11
-  N5 --> N15
-  N5 --> N16
-  N5 --> N17
-  N5 --> N18
-  N5 --> N19
-  N5 --> N20
-  N5 --> N21
-  N5 --> N22
-  N5 --> N23
-  N6 --> N1
-  N6 --> N7
-  N6 --> N8
-  N6 --> N10
   N6 --> N11
-  N6 --> N15
-  N6 --> N16
-  N6 --> N17
-  N6 --> N18
-  N6 --> N19
-  N6 --> N20
-  N6 --> N21
-  N6 --> N22
-  N6 --> N23
-  N7 --> N10
   N7 --> N11
-  N7 --> N18
-  N7 --> N20
-  N7 --> N21
-  N7 --> N22
-  N8 --> N7
-  N8 --> N10
-  N8 --> N15
-  N8 --> N16
-  N8 --> N20
-  N9 --> N0
-  N9 --> N1
-  N9 --> N3
-  N9 --> N4
-  N9 --> N8
-  N9 --> N19
-  N9 --> N22
-  N9 --> N23
-  N10 --> N8
   N10 --> N11
-  N10 --> N15
-  N10 --> N20
+  N5 --> N11
+  N0 --> N2
+  N0 --> N7
+  N7 --> N10
   N12 --> N13
-  N14 --> N0
-  N14 --> N7
-  N14 --> N9
-  N14 --> N15
-  N14 --> N16
-  N15 --> N8
-  N16 --> N1
-  N16 --> N8
-  N16 --> N18
-  N17 --> N8
-  N17 --> N10
-  N17 --> N11
-  N17 --> N21
-  N18 --> N23
-  N19 --> N11
-  N20 --> N8
-  N21 --> N11
-  N22 --> N7
-  N23 --> N18
+  N0 --> N11
+  N2 --> N11
+  N0 --> N10
+  N2 --> N7
+  N2 --> N10
+  N5 --> N7
+  N5 --> N10
+  N6 --> N7
 ```
 
 ### Composition
