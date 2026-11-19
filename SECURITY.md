@@ -14,7 +14,7 @@ Include the affected version or commit, steps to reproduce, and the impact you o
 
 ## 1. Loopback Isolation & Web Perimeter Defense
 
-* **Loopback Binding by Default:** The HTTP server binds to `127.0.0.1` by default and is intended to be used on the loopback interface only. Binding it to another interface with `-host` is not a supported configuration.
+* **Loopback Binding by Default:** The HTTP server binds to `127.0.0.1` by default and is intended to be used on the loopback interface only. The server refuses to start when `-host` is not a loopback address.
 * **DNS Rebinding Protection:** Every incoming HTTP request must supply a valid loopback `Host` header (`127.0.0.1`, `localhost`, or `[::1]`). Requests routed via external hostnames or DNS rebinding domains are terminated with `400 Bad Request`.
 * **CSRF & Cross-Site Defense:** 
   * Every API request (reads as well as `POST`, `PUT`, `DELETE`) is checked against browser metadata (`Sec-Fetch-Site`). Requests a browser marks as coming from another site, or from another `localhost` port, are refused with `403 Forbidden`, so other web pages can't make the server run CUPS commands. Clients that don't send the header (curl, scripts) are handled by the token and connection-owner rules.
@@ -25,7 +25,7 @@ Include the affected version or commit, steps to reproduce, and the impact you o
 
 ## 2. Authentication & Session Management
 
-* **Cryptographic Session Tokens:** A 128-bit session token is generated using `crypto/rand` and stored at `~/.cups-webui/session.json`.
+* **Cryptographic Session Tokens:** A 128-bit session token is generated using `crypto/rand` and stored at `~/.cups-webui/session.json`. A new token is generated every time the server starts. The sign-in link that carries the token is printed only to a terminal, never to the LaunchAgent log.
 * **Filesystem Permissions:** The user configuration directory is restricted to `0700` and the session credential file is restricted to `0600` (read/write by the user only).
 * **Same-User Sign-In:** The session is established automatically only for connections that originate from the same macOS user account that runs `cups-webui`. Connections from other accounts or other hosts must already hold the session token, for both reading and changing data.
 * **Constant-Time Verification:** Session tokens are validated using `crypto/subtle.ConstantTimeCompare` to mitigate timing side-channel attacks.
