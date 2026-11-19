@@ -263,7 +263,7 @@ flowchart TD
 
 'web/src/types/cups.ts' has the highest fan-in at 15, and on the Go side 'internal/cups/validation.go' has 14.
 
-9 of 71 files: the most connected ones, test files left out, joined by the 16 strongest of the 29 links between them.
+9 of 71 files: the most connected ones, test files left out, joined by the 10 strongest of the 29 links between them.
 
 ```mermaid
 flowchart LR
@@ -292,12 +292,6 @@ flowchart LR
   N12 --> N13
   N0 --> N11
   N2 --> N11
-  N0 --> N10
-  N2 --> N7
-  N2 --> N10
-  N5 --> N7
-  N5 --> N10
-  N6 --> N7
 ```
 
 ### Composition
