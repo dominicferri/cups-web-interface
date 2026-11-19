@@ -158,7 +158,7 @@ This repository is the PaperCut CUPS WebUI with a double-click installer added f
 - 'IsValidPrinterName' in 'internal/cups/validation.go' is called 34 times, more than twice the next function.
 - The frontend and the Go code do not import each other. The only link between them is 'web/vite.config.ts', which configures 'internal/web/embed.go'.
 - 'cmd/cups-webui/main.go' has 36 outgoing links, the most of any file.
-- The Go and TypeScript source arrived in the first commit. The three later commits changed the installer, the documents, '.gitignore' and the driver image.
+- The Go and TypeScript source arrived in the first commit. The later commits changed the installer, the documents, '.gitignore' and the driver image.
 
 ### Architecture
 
@@ -384,14 +384,14 @@ flowchart LR
 
 Go is 12,250 lines in 37 files and TypeScript is 6,651 lines in 20 files. The 'internal' directory is 11,992 lines. That is more than 'web' at 9,034 lines, and 1,982 of the 'web' lines are the lockfile.
 
-104 files, 21744 lines.
+104 files, 22004 lines.
 
 | Language | Files | Lines |
 |---|---:|---:|
 | Go | 37 | 12250 |
 | TypeScript | 20 | 6651 |
 | Lockfile | 1 | 1982 |
-| Docs | 4 | 246 |
+| Docs | 4 | 506 |
 | CSS | 3 | 225 |
 | Other | 29 | 133 |
 | JSON | 5 | 95 |
@@ -399,15 +399,15 @@ Go is 12,250 lines in 37 files and TypeScript is 6,651 lines in 20 files. The 'i
 
 ### History
 
-Every commit is from 2026-11-19. 'CHANGELOG.md' changed in all 4 commits and 'Install CUPS WebUI.command' changed in 3, because the new work in this repository is the installer.
+Every commit is from 2026-11-19. After the first commit the changes are to the installer and the documents, because the new work in this repository is the installer.
 
-4 commits, 2026-11-19.
+5 commits, 2026-11-19.
 
 | Hotspot | Commits | Lines |
 |---|---:|---:|
 | `Install CUPS WebUI.command` | 3 | 63 |
 
-No source file has more than one commit, so the ranking here follows size. 'internal/cups/mock_adapter.go' at 1,395 lines and 'internal/cups/cli_adapter.go' at 1,360 lines lead for that reason.
+The table has one row because the installer is the only code file with more than one commit. The Go and TypeScript files have one commit each.
 
 <!-- git-understand:end -->
 
