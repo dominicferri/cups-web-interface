@@ -285,7 +285,7 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
                       <div>
                         <div className="flex items-center gap-2">
                           <h4 className="text-xs font-semibold text-slate-900 dark:text-white block">
-                            macOS Login Auto-Start (LaunchAgent)
+                            macOS Service (LaunchAgent)
                           </h4>
                           {launchAgentLoading ? (
                             <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-300">
@@ -302,7 +302,7 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
                           )}
                         </div>
                         <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
-                          Registers <code>cups-webui</code> under <code>~/Library/LaunchAgents</code> to start automatically in the background when logging into macOS.
+                          Registers <code>cups-webui</code> under <code>~/Library/LaunchAgents</code> so that <code>cups-webui open</code> starts the server. The server stops when you close the last browser tab.
                         </p>
                       </div>
                     </div>
@@ -331,7 +331,7 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
                           className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 dark:hover:bg-rose-900/50 border border-rose-200 dark:border-rose-800 transition disabled:opacity-50 cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
-                          <span>Remove Auto-Start</span>
+                          <span>Remove Service</span>
                         </button>
                       ) : (
                         <button
@@ -341,7 +341,7 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
                           className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 border border-indigo-200 dark:border-indigo-800 transition disabled:opacity-50 cursor-pointer"
                         >
                           <Power className="w-3.5 h-3.5" />
-                          <span>Enable Auto-Start</span>
+                          <span>Install Service</span>
                         </button>
                       )}
                     </div>

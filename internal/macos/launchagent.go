@@ -55,9 +55,12 @@ const plistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
     <key>WorkingDirectory</key>
     <string>{{xml .WorkingDir}}</string>
     <key>RunAtLoad</key>
-    <true/>
+    <false/>
     <key>KeepAlive</key>
-    <true/>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
     <key>StandardOutPath</key>
     <string>{{xml .StdOutPath}}</string>
     <key>StandardErrorPath</key>
@@ -218,6 +221,26 @@ func Install(binaryPath string, port int, host string) error {
 	return nil
 }
 
+// IsInstalled reports whether the LaunchAgent plist exists.
+func IsInstalled() bool {
+	plistPath, err := GetPlistPath()
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(plistPath)
+	return err == nil
+}
+
+// Start asks launchd to run the installed LaunchAgent. The server exits when
+// the browser closes, so 'cups-webui open' starts it again with this.
+func Start() error {
+	target := fmt.Sprintf("gui/%d/%s", os.Getuid(), LaunchAgentLabel)
+	if out, err := exec.Command("launchctl", "kickstart", target).CombinedOutput(); err != nil {
+		return fmt.Errorf("launchctl kickstart failed: %v (output: %s)", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 // IsLaunchAgentProcess reports whether this process was started by launchd as
 // the CUPS webui LaunchAgent. Such a process cannot install or uninstall the
 // agent itself: unloading the job stops it part-way. Use RunDetached instead.
@@ -282,11 +305,12 @@ func GetStatus(binaryPath string) (*LaunchAgentStatus, error) {
 	if installed {
 		detail = "Installed"
 		out, err := exec.Command("launchctl", "list", LaunchAgentLabel).CombinedOutput()
-		if err == nil && !strings.Contains(string(out), "Could not find service") {
+		// The job stays loaded while the server is stopped; only a running job lists a PID.
+		if err == nil && strings.Contains(string(out), `"PID"`) {
 			running = true
 			detail = "Installed and running under launchd"
 		} else {
-			detail = "Installed (inactive / stopped)"
+			detail = "Installed (stopped; 'cups-webui open' starts it)"
 		}
 	}
 

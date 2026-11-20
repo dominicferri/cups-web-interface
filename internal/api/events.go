@@ -48,6 +48,13 @@ func (b *EventBroadcaster) Subscribe() (chan SSEEvent, func()) {
 	return ch, unsubscribe
 }
 
+// SubscriberCount returns the number of open SSE connections.
+func (b *EventBroadcaster) SubscriberCount() int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return len(b.subscribers)
+}
+
 // Broadcast dispatches an event to all active subscribers. Non-blocking if a channel is full.
 func (b *EventBroadcaster) Broadcast(event SSEEvent) {
 	b.mu.RLock()
@@ -83,6 +90,8 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 
 	ch, unsubscribe := s.events.Subscribe()
+	// The grace period of WaitIdle starts when the stream closes.
+	defer s.touch()
 	defer unsubscribe()
 
 	ticker := time.NewTicker(15 * time.Second)

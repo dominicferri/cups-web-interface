@@ -1,5 +1,5 @@
 #!/bin/bash
-# Installs the bundled cups-webui as a login service, then opens it in the browser.
+# Installs the bundled cups-webui as a service, then opens it in the browser.
 set -u
 
 cd "$(dirname "$0")" || exit 1
@@ -22,7 +22,8 @@ osascript -l JavaScript -e 'ObjC.import("AppKit"); function run(a) { $.NSWorkspa
 xattr -d com.apple.quarantine "$BIN" 2>/dev/null
 
 # A copy started by hand holds the port, so the service could not start and the check below would pass against the wrong copy.
-if curl -s -o /dev/null --max-time 1 "$URL" && ! launchctl list com.papercut.cups-webui >/dev/null 2>&1; then
+# The service stays loaded while it is stopped; only a running service lists a PID.
+if curl -s -o /dev/null --max-time 1 "$URL" && ! launchctl list com.papercut.cups-webui 2>/dev/null | grep -q '"PID"'; then
   fail "Another copy of CUPS WebUI already uses $URL. Close the Terminal window that runs it, then run this installer again."
 fi
 
@@ -39,7 +40,8 @@ done
 # 'open' prints a sign-in link that holds a session token, so keep it off the screen.
 "$BIN" open >/dev/null || fail "Could not open the browser. Go to $URL yourself."
 
-echo "CUPS WebUI is running at $URL and starts at every login."
+echo "CUPS WebUI is running at $URL. It stops when you close its browser tab."
+echo "To open it again: ./bin/cups-webui open"
 echo "To remove it: ./bin/cups-webui launchagent uninstall"
 
 # Optional: a Xerox driver disk image in drivers/, named XeroxDrivers_<version>_<build>.dmg.

@@ -134,6 +134,10 @@ func (s *Server) securityMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			s.touch()
+		}
+
 		origin := r.Header.Get("Origin")
 
 		// 2. CORS Defense: Only allow loopback origins
