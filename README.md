@@ -20,7 +20,9 @@ This copy adds `Install CUPS WebUI.command` and a set of bug and security fixes 
 1. Download the folder and keep its contents together.
 2. Double-click `Install CUPS WebUI.command`.
 3. macOS blocks the file the first time, because it came from the internet and is not notarized. Open **System Settings > Privacy & Security**, scroll to **Security**, and click **Open Anyway**. Then double-click the file again.
-4. The installer clears the download flag on `bin/cups-webui`, installs the login service, and opens `http://127.0.0.1:6310`.
+4. The installer clears the download flag on `bin/cups-webui`, installs the service, and opens `http://127.0.0.1:6310`.
+
+The server stops about 15 seconds after you close the last CUPS WebUI tab. To open it again, run `./bin/cups-webui open`.
 
 To skip step 3, clear the flag in Terminal before the first run:
 ```bash
@@ -89,13 +91,9 @@ The page never sends a file path, so the list of allowed PPD folders is unchange
 These parts have tests but were not run against a real system:
 
 - Creating a real queue from an uploaded PPD with `lpadmin -P`.
-- Reinstall and uninstall from the web page while the server runs as the login service.
+- Reinstall and uninstall from the web page while the server runs as the service.
 - The driver package install in the installer.
 - Sharing, held jobs and stuck jobs on a CUPS server that has a shared queue or an active job.
-
-### Known issue
-
-`web/index.html` has an inline script that sets the theme before the page loads. The server's Content-Security-Policy (`script-src 'self'`) blocks it, and the browser console shows one error on each load. The page still works. This is the same in the upstream source and is not fixed here.
 
 ---
 
@@ -110,12 +108,12 @@ Start the server and automatically open the interface in your browser:
 ```
 The interface will be available at `http://127.0.0.1:6310`. Once the server is running, you can open (or bookmark) that address directly; no login step is needed for the user account that runs the server. Other accounts on the same Mac are not signed in.
 
-This runs until you close the Terminal window. To keep it running and start it at every login, see step 2.
+The server stops about 15 seconds after you close the last CUPS WebUI tab, or when you close the Terminal window. A page reload does not stop it. To keep it running after the browser closes, add `-keep-running`.
 
-### 2. Start Automatically at Login (Recommended)
-Running the install command is all you need. It sets up cups-webui as a background service (a macOS LaunchAgent) that starts every time you log in and restarts if it stops. You don't need to enable anything else in the web interface.
+### 2. Install as a Service (Recommended)
+Running the install command is all you need. It sets up cups-webui as a macOS LaunchAgent that runs only while you use it. `./bin/cups-webui open` starts the server and opens the browser. The server stops about 15 seconds after you close the last tab, and macOS restarts it only if it crashes. You don't need to enable anything else in the web interface.
 ```bash
-# Install the service: it starts now and at every login
+# Install the service: it starts now
 ./bin/cups-webui launchagent install
 
 # Or install it on a different port
@@ -124,15 +122,18 @@ Running the install command is all you need. It sets up cups-webui as a backgrou
 # Check service status
 ./bin/cups-webui launchagent status
 
-# Remove the service (it stops and no longer starts at login)
+# Open the web interface (starts the server if it is stopped)
+./bin/cups-webui open
+
+# Remove the service
 ./bin/cups-webui launchagent uninstall
 ```
 
-The install command copies the binary to `~/Library/Application Support/cups-webui/` and starts the service straight away. Open `http://127.0.0.1:6310` in your browser and bookmark it (or the port you chose with `-port`).
+The install command copies the binary to `~/Library/Application Support/cups-webui/` and starts the service straight away. A bookmark to `http://127.0.0.1:6310` works only while the server runs, so use `./bin/cups-webui open` to get back in.
 
-**Enable Auto-Start** under **CUPS Settings** in the web interface does the same thing, so use whichever is easier. It uses the port that instance is running on. Running `./bin/cups-webui -open` on its own (step 1) does not start it at login.
+**Install Service** under **CUPS Settings** in the web interface does the same thing, so use whichever is easier. It uses the port that instance is running on. Running `./bin/cups-webui -open` on its own (step 1) does not install the service.
 
-The service starts when you log in, not when the Mac boots, and only for your user account.
+The service is installed for your user account only. It does not start at login or when the Mac boots.
 
 ### 3. Run in Mock Mode (For Testing / Demo)
 Runs with simulated printers, queues, and diagnostic alerts without requiring active printer hardware:
@@ -166,9 +167,10 @@ The **Hardware Accessories** tab lists the queue's installable options, installe
 | `-host` | `127.0.0.1` | Host interface to bind to. Only loopback addresses (`127.0.0.1`, `::1`, `localhost`) are accepted; any other value stops the server at start |
 | `-mock` | `false` | Run with simulated CUPS mock data |
 | `-open` | `false` | Automatically open default browser on launch |
+| `-keep-running` | `false` | Keep the server running after the browser closes |
 
 Subcommands:
-- `cups-webui open` – Open the running server in your default browser using its session link
+- `cups-webui open` – Open the server in your default browser using its session link. Starts the installed service first if it is stopped
 - `cups-webui launchagent [install|uninstall|status]` – Manage the macOS background LaunchAgent service
 
 ---

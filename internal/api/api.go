@@ -7,6 +7,8 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync/atomic"
+	"time"
 )
 
 // Server handles HTTP requests for CUPS webui.
@@ -16,6 +18,11 @@ type Server struct {
 	staticFS fs.FS
 	events   *EventBroadcaster
 	token    string
+
+	// started and lastActivity feed WaitIdle. lastActivity is the UnixNano
+	// time of the last /api/ request or closed event stream, 0 before the first.
+	started      time.Time
+	lastActivity atomic.Int64
 
 	// peerIsSameUser reports whether a request's connection is owned by the
 	// user running the server. Replaced in tests.
@@ -37,6 +44,7 @@ func NewServer(adapter cups.Adapter, staticFS fs.FS, sessionToken ...string) *Se
 		staticFS: staticFS,
 		events:   NewEventBroadcaster(),
 		token:    token,
+		started:  time.Now(),
 
 		peerIsSameUser: connectionIsSameUser,
 	}

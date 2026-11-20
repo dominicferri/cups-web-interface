@@ -61,11 +61,11 @@ func printUsage() {
 
 Usage:
   cups-webui [serve] [flags]          Start the CUPS webui server (default)
-  cups-webui open [flags]             Open CUPS webui in the default browser with active session token
+  cups-webui open [flags]             Open CUPS webui in the default browser, starting the installed service if it is stopped
   cups-webui launchagent <command>    Manage the macOS background LaunchAgent service
 
 LaunchAgent Commands:
-  install [-port <int>]               Generate plist and register cups-webui to launch on login (default port 6310)
+  install [-port <int>]               Generate plist and register cups-webui as an on-demand service (default port 6310)
   uninstall                           Unload and remove the cups-webui LaunchAgent
   status                              Display current LaunchAgent installation and execution status
 
@@ -74,6 +74,7 @@ Flags:
   -host <string>     Host interface to bind to (default 127.0.0.1)
   -mock              Run with mock CUPS data (useful for dev and testing)
   -open              Open browser automatically upon server startup
+  -keep-running      Keep the server running after the browser closes
   -help, -h          Show this help message`)
 }
 
@@ -82,6 +83,7 @@ func runServer() {
 	host := flag.String("host", "127.0.0.1", "Host interface to bind to (strictly loopback for security)")
 	mockMode := flag.Bool("mock", false, "Run with mock CUPS data (useful for dev and testing)")
 	autoOpen := flag.Bool("open", false, "Open browser automatically on start")
+	keepRunning := flag.Bool("keep-running", false, "Keep the server running after the browser closes")
 	flag.Parse()
 
 	if os.Getenv("CUPS_WEBUI_MOCK") == "true" || os.Getenv("CUPS_WEBUI_MOCK") == "1" {
@@ -172,7 +174,21 @@ func runServer() {
 		}
 	}()
 
-	<-stopChan
+	// Without -keep-running the server stops when the last browser tab closes.
+	// 15 s covers a page reload; 2 min covers a browser that is still opening.
+	idle := make(chan struct{})
+	if !*keepRunning {
+		go func() {
+			srv.WaitIdle(15*time.Second, 2*time.Minute, time.Second)
+			close(idle)
+		}()
+	}
+
+	select {
+	case <-stopChan:
+	case <-idle:
+		log.Println("[INFO] No browser is using the server.")
+	}
 	log.Println("[INFO] Shutting down CUPS webui server...")
 	clearSessionInfo()
 
@@ -192,6 +208,23 @@ func handleOpenCommand(args []string) {
 	_ = fs.Parse(args)
 
 	session, err := loadSessionInfo()
+	// The server stops when the browser closes. Start the installed service
+	// again and wait for the session of the new process.
+	if (err != nil || !sessionAnswers(session)) && macos.IsInstalled() {
+		if startErr := macos.Start(); startErr != nil {
+			fmt.Fprintf(os.Stderr, "Error starting the CUPS webui service: %v\n", startErr)
+			os.Exit(1)
+		}
+		started := false
+		for deadline := time.Now().Add(5 * time.Second); !started && time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+			session, err = loadSessionInfo()
+			started = err == nil && sessionAnswers(session)
+		}
+		if !started {
+			fmt.Fprintln(os.Stderr, "Error: the CUPS webui service did not start. Check ~/Library/Logs for com.papercut.cups-webui logs.")
+			os.Exit(1)
+		}
+	}
 	targetURL := ""
 	if err == nil && session != nil && session.URL != "" {
 		targetURL = session.URL
@@ -242,7 +275,7 @@ func handleLaunchAgentCommand(args []string) {
 		fmt.Println("✅ CUPS webui macOS LaunchAgent successfully installed and registered!")
 		fmt.Printf("   Plist location: %s\n", plistPath)
 		fmt.Printf("   Address:        http://127.0.0.1:%d\n", *port)
-		fmt.Println("   cups-webui will automatically start whenever you log into macOS.")
+		fmt.Println("   The server stops when you close its browser tab. 'cups-webui open' starts it again.")
 
 	case "uninstall":
 		if err := macos.Uninstall(); err != nil {
@@ -316,7 +349,24 @@ func loadSessionInfo() (*SessionInfo, error) {
 	return &info, nil
 }
 
+// sessionAnswers reports whether the server that wrote the session file still listens.
+func sessionAnswers(session *SessionInfo) bool {
+	if session == nil {
+		return false
+	}
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort(session.Host, strconv.Itoa(session.Port)), 500*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
+}
+
+// clearSessionInfo removes the session file, unless another instance wrote it.
 func clearSessionInfo() {
+	if session, err := loadSessionInfo(); err == nil && session.PID != os.Getpid() {
+		return
+	}
 	_ = os.Remove(getSessionFilePath())
 }
 

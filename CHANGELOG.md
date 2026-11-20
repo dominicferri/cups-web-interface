@@ -2,6 +2,17 @@
 
 ## 2026-11-20
 
+### Server stops when the browser closes
+
+- The server exits about 15 seconds after the last CUPS WebUI tab closes. It counts open event streams and recent API requests, so a page reload or a second tab does not stop it. A server that no browser connects to exits after 2 minutes. `-keep-running` turns this off.
+- The LaunchAgent no longer starts the server at login and restarts it only after a crash (`RunAtLoad` false, `KeepAlive` with `SuccessfulExit` false). Before, launchd restarted the server every time it exited, so it could never stop. Run `launchagent install` again to replace a plist from an earlier version.
+- `cups-webui open` starts the installed service when the server is stopped, waits for it, then opens the browser. A bookmark to `http://127.0.0.1:6310` works only while the server runs.
+- An instance that exits no longer removes a `session.json` that a later instance wrote. Each start still replaces the file, so `cups-webui open` goes to the instance started last.
+
+### Fixes
+
+- The page no longer logs a Content-Security-Policy error on each load. The inline theme script in `web/index.html` moved to `web/public/theme-init.js`, which `script-src 'self'` allows. The policy is unchanged. A test (`internal/web/embed_test.go`) fails if the built `index.html` has an inline script.
+
 ### Drivers
 
 - The Swap Driver and Add Printer lists show first the drivers whose make is in the queue's name or description. Before, the bundled Xerox 5.20.0 PPDs started at row 14, below the five visible rows (DYMO, Epson, Generic, HP), so a queue such as `Office_Xerox` seemed to have no Xerox drivers. "Generic" and "Raw" never count as a match. Other queues keep the `lpinfo` order.
