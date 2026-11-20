@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-11-20
+
+### Speed
+
+Measured on a Mac with 5 queues and a 614 KB `error_log`.
+
+- The log page loads in about 7 ms, down from about 280 ms. The server tested every line of the log against every diagnostic pattern and then kept only the newest lines. It now reads from the newest line back and stops at the number of lines asked for. The entries returned are the same.
+- One 5-second refresh of the page reads the printer list once, not twice. The status request and the printer request each ran the same two slow `lpstat` calls. The list is now shared for 1 second, and requests that arrive during a read wait for that read. The status request takes about 255 ms, down from about 400 ms.
+- The two slow `lpstat` calls run at the same time. A printer list read with nothing stored takes about 200 ms, down from about 290 ms.
+- Every command that changes CUPS (add, modify, delete, pause, resume, default, options, sharing, test page, job actions) drops the shared list, so the page shows the change on its next read. A change made outside CUPS WebUI can show up to 1 second later than before.
+
 ## 2026-11-19
 
 - Added `Install CUPS WebUI.command`, a double-click installer. It clears the download flag on `bin/cups-webui`, installs the login service, waits for it to answer, and opens the browser. macOS 27 removed the built-in CUPS web interface, and the unsigned binary does not run from a download until that flag is cleared.
