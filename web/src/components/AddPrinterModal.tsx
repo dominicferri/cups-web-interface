@@ -17,6 +17,7 @@ import {
 import type { Printer, DriverInfo, PPDValidationResult, AddPrinterParams } from '../types/cups';
 import { api } from '../api/client';
 import { useModalDialog } from '../utils/useModalDialog';
+import { driversForQueue } from '../utils/format';
 
 interface AddPrinterModalProps {
   isOpen: boolean;
@@ -784,7 +785,7 @@ export const AddPrinterModal: React.FC<AddPrinterModalProps> = ({
                           No drivers matched your search criteria.
                         </div>
                       ) : (
-                        drivers.map((d) => {
+                        driversForQueue(drivers, name, description).map((d) => {
                           const isSelected = selectedDriver?.name === d.name;
                           return (
                             <button

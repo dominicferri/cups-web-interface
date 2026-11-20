@@ -28,6 +28,7 @@ import { api } from '../api/client';
 import { useModalDialog } from '../utils/useModalDialog';
 import { AccessoriesPanel } from './AccessoriesPanel';
 import { installedCount } from '../utils/accessories';
+import { driversForQueue } from '../utils/format';
 
 export type ConfigModalTab = 'preferences' | 'accessories' | 'audit' | 'details' | 'driver';
 
@@ -696,7 +697,7 @@ export const PrinterConfigModal: React.FC<PrinterConfigModalProps> = ({
                     No drivers found.
                   </div>
                 ) : (
-                  driverCatalog.map((d) => {
+                  driversForQueue(driverCatalog, printer.name, printer.info ?? '').map((d) => {
                     const isSelected = selectedDriver?.name === d.name;
                     return (
                       <button

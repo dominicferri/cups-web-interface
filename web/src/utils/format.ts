@@ -31,3 +31,15 @@ export function formatAlert(alert: string): { label: string; severity: 'warning'
       return { label: alert.replace(/-/g, ' '), severity: 'info' };
   }
 }
+
+// Puts drivers whose make appears in the queue's name or description first, so a
+// queue named "Office_Xerox" opens on the Xerox PPDs instead of DYMO and Epson.
+// The order within each group stays as lpinfo gave it.
+export function driversForQueue<T extends { make: string }>(drivers: T[], ...labels: string[]): T[] {
+  const text = labels.join(' ').toLowerCase();
+  const matches = (d: T) => {
+    const make = d.make.trim().toLowerCase();
+    return make.length > 1 && make !== 'generic' && make !== 'raw' && text.includes(make);
+  };
+  return [...drivers.filter(matches), ...drivers.filter((d) => !matches(d))];
+}

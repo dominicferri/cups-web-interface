@@ -2,6 +2,10 @@
 
 ## 2026-11-20
 
+### Drivers
+
+- The Swap Driver and Add Printer lists show first the drivers whose make is in the queue's name or description. Before, the bundled Xerox 5.20.0 PPDs started at row 14, below the five visible rows (DYMO, Epson, Generic, HP), so a queue such as `Office_Xerox` seemed to have no Xerox drivers. "Generic" and "Raw" never count as a match. Other queues keep the `lpinfo` order.
+
 ### Speed
 
 Measured on a Mac with 5 queues and a 614 KB `error_log`.
