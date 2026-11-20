@@ -51,6 +51,8 @@ type CLIAdapter struct {
 
 	// PPDUploadDir holds validated PPD uploads. Empty means ~/.cups-webui/ppd-uploads.
 	PPDUploadDir string
+
+	printers printerCache
 }
 
 func (a *CLIAdapter) ppdUploadDir() (string, error) {
@@ -90,6 +92,10 @@ func (a *CLIAdapter) runCommand(ctx context.Context, name string, args ...string
 	cmd.Stderr = &stderr
 
 	err := cmd.Run()
+	if !commandKeepsPrinterList(name, args) {
+		// Also after a failure: a failed command can have changed part of the state.
+		a.printers.invalidate()
+	}
 	if err != nil {
 		errStr := strings.TrimSpace(stderr.String())
 		if errStr == "" {
@@ -115,9 +121,22 @@ func redactURICredentials(s string) string {
 }
 
 // GetPrinters retrieves all printers and classes with their statuses, URIs, and details.
+// The list is reused for printerListTTL and dropped after each command that changes CUPS.
 func (a *CLIAdapter) GetPrinters() ([]Printer, error) {
+	return a.printers.get(printerListTTL, a.fetchPrinters)
+}
+
+func (a *CLIAdapter) fetchPrinters() ([]Printer, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), a.timeout)
 	defer cancel()
+
+	// Fetch detailed info (-l -p) beside the status call. The two calls are the
+	// slowest part of the list and do not depend on each other.
+	detailsCh := make(chan string, 1)
+	go func() {
+		out, _ := a.runCommand(ctx, "lpstat", "-l", "-p")
+		detailsCh <- out
+	}()
 
 	// 1. Fetch status: -p (printers), -d (default), -v (devices), -a (accepting)
 	statusOut, err := a.runCommand(ctx, "lpstat", "-p", "-d", "-v", "-a")
@@ -130,9 +149,7 @@ func (a *CLIAdapter) GetPrinters() ([]Printer, error) {
 
 	printersMap := ParseCombinedStatus(statusOut, classOut)
 
-	// 3. Fetch detailed info: -l -p
-	detailsOut, _ := a.runCommand(ctx, "lpstat", "-l", "-p")
-	if detailsOut != "" {
+	if detailsOut := <-detailsCh; detailsOut != "" {
 		ParsePrinterDetails(printersMap, detailsOut)
 	}
 
@@ -974,6 +991,7 @@ func (a *CLIAdapter) PrintTestPage(name string) (string, error) {
 		cmd.Stdout = &stdout
 		cmd.Stderr = &stderr
 		err = cmd.Run()
+		a.printers.invalidate() // a new job changes the queue's job count
 		out = stdout.String()
 		if err != nil {
 			err = fmt.Errorf("%s: %s", err, stderr.String())

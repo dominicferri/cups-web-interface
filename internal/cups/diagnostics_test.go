@@ -1,6 +1,7 @@
 package cups
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -219,5 +220,35 @@ E [10/Sep/2026:23:50:00 +1000] Returning IPP server-error for CUPS-Add-Modify-Pr
 	problems := ParseErrorLog(sampleLog, 100, "problems")
 	if len(problems) != 4 { // 3 errors + 1 warning
 		t.Errorf("expected 4 problem entries (errors + warnings), got %d", len(problems))
+	}
+}
+
+// The log viewer asks for the latest lines; older lines must not be returned.
+func TestParseErrorLogReturnsLatestEntriesInOrder(t *testing.T) {
+	log := `I [10/Sep/2026:20:00:00 +1000] one
+E [10/Sep/2026:20:00:01 +1000] two
+I [10/Sep/2026:20:00:02 +1000] three
+
+E [10/Sep/2026:20:00:03 +1000] four
+I [10/Sep/2026:20:00:04 +1000] five
+`
+	messages := func(entries []LogEntry) string {
+		var out []string
+		for _, e := range entries {
+			out = append(out, e.Message)
+		}
+		return strings.Join(out, ",")
+	}
+	if got := messages(ParseErrorLog(log, 2, "all")); got != "four,five" {
+		t.Errorf("latest 2 of all: got %q", got)
+	}
+	if got := messages(ParseErrorLog(log, 1, "error")); got != "four" {
+		t.Errorf("latest 1 error: got %q", got)
+	}
+	if got := messages(ParseErrorLog(log, 100, "error")); got != "two,four" {
+		t.Errorf("all errors: got %q", got)
+	}
+	if got := ParseErrorLog("", 100, "all"); len(got) != 0 {
+		t.Errorf("empty log: got %v", got)
 	}
 }

@@ -1,7 +1,6 @@
 package cups
 
 import (
-	"bufio"
 	"regexp"
 	"strings"
 	"time"
@@ -271,100 +270,106 @@ var (
 )
 
 // ParseErrorLog scans CUPS log content and returns structured log entries annotated with diagnostics.
+// It returns the latest maxLines entries that match levelFilter, oldest first.
 func ParseErrorLog(content string, maxLines int, levelFilter string) []LogEntry {
 	if maxLines <= 0 {
 		maxLines = 100
 	}
 	levelFilter = strings.ToLower(strings.TrimSpace(levelFilter))
 
-	var allEntries []LogEntry
-	scanner := bufio.NewScanner(strings.NewReader(content))
-
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
+	// Read from the newest line back and stop at maxLines entries. Classifying a
+	// line runs every diagnostic pattern on it, so lines that are not returned
+	// must not be classified: the log can hold thousands of them.
+	lines := strings.Split(content, "\n")
+	var entries []LogEntry
+	for i := len(lines) - 1; i >= 0 && len(entries) < maxLines; i-- {
+		line := strings.TrimSpace(lines[i])
 		if line == "" {
 			continue
 		}
-
-		matches := logLineRegex.FindStringSubmatch(line)
-		if len(matches) != 4 {
-			// Unformatted line: treat as generic info/error line
-			diag := ClassifyError(line)
-			entry := LogEntry{
-				RawDate:    "",
-				Level:      "info",
-				Message:    line,
-				Diagnostic: diag,
-			}
-			if diag != nil {
-				entry.Level = diag.Severity
-				if entry.Level == "warning" {
-					entry.Level = "warn"
-				}
-			}
-			if matchesLevel(entry.Level, levelFilter) {
-				allEntries = append(allEntries, entry)
-			}
-			continue
+		if entry, ok := parseLogLine(line, levelFilter); ok {
+			entries = append(entries, entry)
 		}
+	}
 
-		levelCode := matches[1]
-		rawDate := matches[2]
-		msg := matches[3]
+	for i, j := 0, len(entries)-1; i < j; i, j = i+1, j-1 {
+		entries[i], entries[j] = entries[j], entries[i]
+	}
+	return entries
+}
 
-		var level string
-		switch levelCode {
-		case "E", "X":
-			level = "error"
-		case "W":
-			level = "warn"
-		case "I":
-			level = "info"
-		case "D":
-			level = "debug"
-		default:
-			level = "info"
-		}
-
-		if !matchesLevel(level, levelFilter) {
-			continue
-		}
-
-		ts, err := time.Parse(cupsDateFormat, rawDate)
-		if err != nil {
-			ts = time.Now()
-		}
-
-		// Extract printer name if mentioned
-		var printer string
-		if pMatch := printerInURL.FindStringSubmatch(msg); len(pMatch) >= 2 {
-			printer = pMatch[1]
-		}
-
-		// Extract job ID if mentioned
-		var jobID string
-		if jMatch := jobInMsg.FindStringSubmatch(msg); len(jMatch) >= 2 {
-			jobID = jMatch[1]
-		}
-
-		diag := ClassifyError(msg)
-
-		allEntries = append(allEntries, LogEntry{
-			Timestamp:  ts,
-			RawDate:    rawDate,
-			Level:      level,
-			Message:    msg,
-			Printer:    printer,
-			JobID:      jobID,
+// parseLogLine converts one non-empty log line to an entry. ok is false when
+// the entry does not match levelFilter.
+func parseLogLine(line string, levelFilter string) (LogEntry, bool) {
+	matches := logLineRegex.FindStringSubmatch(line)
+	if len(matches) != 4 {
+		// Unformatted line: treat as generic info/error line
+		diag := ClassifyError(line)
+		entry := LogEntry{
+			RawDate:    "",
+			Level:      "info",
+			Message:    line,
 			Diagnostic: diag,
-		})
+		}
+		if diag != nil {
+			entry.Level = diag.Severity
+			if entry.Level == "warning" {
+				entry.Level = "warn"
+			}
+		}
+		return entry, matchesLevel(entry.Level, levelFilter)
 	}
 
-	// Return the latest entries up to maxLines
-	if len(allEntries) > maxLines {
-		return allEntries[len(allEntries)-maxLines:]
+	levelCode := matches[1]
+	rawDate := matches[2]
+	msg := matches[3]
+
+	var level string
+	switch levelCode {
+	case "E", "X":
+		level = "error"
+	case "W":
+		level = "warn"
+	case "I":
+		level = "info"
+	case "D":
+		level = "debug"
+	default:
+		level = "info"
 	}
-	return allEntries
+
+	if !matchesLevel(level, levelFilter) {
+		return LogEntry{}, false
+	}
+
+	ts, err := time.Parse(cupsDateFormat, rawDate)
+	if err != nil {
+		ts = time.Now()
+	}
+
+	// Extract printer name if mentioned
+	var printer string
+	if pMatch := printerInURL.FindStringSubmatch(msg); len(pMatch) >= 2 {
+		printer = pMatch[1]
+	}
+
+	// Extract job ID if mentioned
+	var jobID string
+	if jMatch := jobInMsg.FindStringSubmatch(msg); len(jMatch) >= 2 {
+		jobID = jMatch[1]
+	}
+
+	diag := ClassifyError(msg)
+
+	return LogEntry{
+		Timestamp:  ts,
+		RawDate:    rawDate,
+		Level:      level,
+		Message:    msg,
+		Printer:    printer,
+		JobID:      jobID,
+		Diagnostic: diag,
+	}, true
 }
 
 func matchesLevel(entryLevel, filter string) bool {
