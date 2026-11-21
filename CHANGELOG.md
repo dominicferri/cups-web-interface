@@ -20,6 +20,11 @@
 - A closing event stream records its time before it leaves the subscriber count. In the old order the server could see no subscriber and an old time, and stop with no grace period.
 - The idle timer uses the monotonic clock. A step of the system clock (time sync after sleep, a manual change) no longer delays the shutdown or ends the grace period at once.
 
+### README
+
+- Rewrote the README around the current behaviour. New sections: what the program does, how the server runs (start, stop, login, the free port), commands with the files the program writes, printer drivers, and a table of the 7 on-demand review findings. The speed numbers and the driver list order are now in the README. The stale lines about the start at login are gone.
+- Project map: the Composition and History tables are measured again at commit `323254c`. The two diagrams still come from the code graph of 2026-11-19, and the section says so.
+
 ### Fixes
 
 - The page no longer logs a Content-Security-Policy error on each load. The inline theme script in `web/index.html` moved to `web/public/theme-init.js`, which `script-src 'self'` allows. The policy is unchanged. A test (`internal/web/embed_test.go`) fails if the built `index.html` has an inline script.

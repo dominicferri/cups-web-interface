@@ -1,37 +1,166 @@
 # CUPS webui
 
-**Web interface for CUPS**: a modern, lightweight, single-binary replacement for the legacy CUPS web interface (`localhost:631`) on macOS.
+**Web interface for CUPS**: a single-binary replacement for the CUPS web interface (`localhost:631`) that macOS 27 removed.
 
 ![The CUPS webui dashboard in mock mode, showing the summary strip and the printers and queues table](./docs/screenshot.png)
 
-Designed specifically to address UX barriers in macOS and UNIX environments:
-- **Zero Configuration Access**: Bypasses the requirement to run `cupsctl WebInterface=yes` in Terminal.
-- **Human-Centric UX**: Replaces technical abstractions (*PPDs*, *Classes*) with clear workflows (*Printers*, *Print Queues*, *Printer Pools*).
-- **Modern Responsive Interface**: Clean dashboard that follows your Mac's light or dark appearance, built with Tailwind CSS and Lucide icons.
-- **Queue Diagnostics & Stuck Job Remediation**: Identifies stuck print jobs and provides instant one-click cancellation.
-- **Security-First**: Binds to loopback `127.0.0.1:6310` by default, and signs in only the macOS user who runs it. See [SECURITY.md](./SECURITY.md).
+This copy is an unofficial packaging of [PaperCutSoftware/cups-web-interface](https://github.com/PaperCutSoftware/cups-web-interface). It adds a double-click installer, a server that runs only while you use it, and a set of bug, security and speed fixes. It is not published or supported by PaperCut. The PaperCut name and logo are trademarks of PaperCut Software.
+
+**Contents**
+
+- [What it does](#what-it-does)
+- [Install](#install)
+- [How the server runs](#how-the-server-runs)
+- [Commands and flags](#commands-and-flags)
+- [Printer drivers](#printer-drivers)
+- [Setting printer accessories manually](#setting-printer-accessories-manually)
+- [What differs from upstream](#what-differs-from-upstream)
+- [Building from source](#building-from-source)
+- [Architecture](#architecture)
+- [Project map](#project-map)
+- [Security](#security)
+- [License](#license)
 
 ---
 
-## One-Click Install (unofficial packaging)
+## What it does
 
-This copy adds `Install CUPS WebUI.command` and a set of bug and security fixes (see [CHANGELOG.md](./CHANGELOG.md)) to the upstream project, [PaperCutSoftware/cups-web-interface](https://github.com/PaperCutSoftware/cups-web-interface). It is not published or supported by PaperCut. The PaperCut name and logo are trademarks of PaperCut Software.
+- **Printers and queues**: add, modify, delete, pause, resume, set the default, purge a queue, print a test page, and turn sharing on or off.
+- **Jobs**: list active and completed jobs; cancel, hold, release and restart them. Stuck jobs get a banner with a one-click cancel.
+- **Drivers**: pick a driver from the installed list, swap the driver of an existing queue, or upload your own PPD. See [Printer drivers](#printer-drivers).
+- **Printer options and accessories**: change a queue's default options, and set trays, staplers and other installable hardware by hand. See [Setting printer accessories manually](#setting-printer-accessories-manually).
+- **Diagnostics**: a log page that marks known problems in the CUPS `error_log`, and an audit that finds queues whose driver filters are Intel-only and need Rosetta.
+- **Server settings**: the `cupsctl` settings, plus install and removal of the service, from the page.
+- **Live updates**: the page follows changes through an event stream.
+- **No setup in CUPS**: it works without `cupsctl WebInterface=yes`, which macOS 27 no longer accepts.
+- **Local only**: it binds to `127.0.0.1:6310` and signs in only the macOS user who runs it. See [SECURITY.md](./SECURITY.md).
+
+The page follows the light or dark appearance of your Mac.
+
+---
+
+## Install
+
+A universal binary (Apple Silicon and Intel) is included at [`bin/cups-webui`](./bin/cups-webui). You do not need Go or Node.js.
+
+### Double-click installer
 
 1. Download the folder and keep its contents together.
 2. Double-click `Install CUPS WebUI.command`.
 3. macOS blocks the file the first time, because it came from the internet and is not notarized. Open **System Settings > Privacy & Security**, scroll to **Security**, and click **Open Anyway**. Then double-click the file again.
 4. The installer clears the download flag on `bin/cups-webui`, installs the service, and opens `http://127.0.0.1:6310`.
 
-The server stops about 15 seconds after you close the last CUPS WebUI tab. To open it again, run `./bin/cups-webui open`.
-
 To skip step 3, clear the flag in Terminal before the first run:
 ```bash
 xattr -dr com.apple.quarantine /path/to/the/folder
 ```
 
-The file shows the PaperCut icon after its first run. Git and zip downloads do not keep Finder icons, so the installer puts the icon back from `assets/papercut-logo.png`.
+The installer stops with a message when another program already uses `127.0.0.1:6310`. The file shows the PaperCut icon after its first run. Git and zip downloads do not keep Finder icons, so the installer puts the icon back from `assets/papercut-logo.png`.
 
-To remove the service: `./bin/cups-webui launchagent uninstall`
+### From Terminal
+
+```bash
+# Install the service: it starts now
+./bin/cups-webui launchagent install
+
+# Or install it on a different port
+./bin/cups-webui launchagent install -port 8631
+
+# Check service status
+./bin/cups-webui launchagent status
+
+# Open the web interface (starts the server if it is stopped)
+./bin/cups-webui open
+
+# Remove the service
+./bin/cups-webui launchagent uninstall
+```
+
+The install command copies the binary to `~/Library/Application Support/cups-webui/` and starts the service straight away. The service is installed for your user account only. **Install Service** under **CUPS Settings** in the web interface does the same thing, on the port that instance runs on.
+
+If you installed an earlier version, run `launchagent install` again. The old plist made macOS start the server at login and restart it after every exit.
+
+### Without installing
+
+```bash
+# Start the server and open the browser
+./bin/cups-webui -open
+
+# The same with simulated printers, queues and alerts (no printer needed)
+./bin/cups-webui -mock -open
+```
+
+The server runs until its browser tab closes or you close the Terminal window. This does not install the service.
+
+---
+
+## How the server runs
+
+The server runs only while you use it.
+
+| Event | What happens |
+| :--- | :--- |
+| `./bin/cups-webui open` | The command starts the installed service if it is stopped, waits for it, and opens the browser with a sign-in link. |
+| You close the last CUPS WebUI tab | The server exits about 15 seconds later. A page reload or a second tab does not stop it. |
+| The server started less than 2 minutes ago | It keeps running until the 2 minutes have passed, so a browser that is still opening has time to connect. |
+| No browser connects | The server exits 2 minutes after its start. |
+| You log in or the Mac boots | Nothing. The service does not start at login. |
+| The server exits or crashes | macOS does not restart it. `open` starts it again. |
+
+- To keep a hand-started server running after the browser closes, add `-keep-running`.
+- Once the server runs, you can open `http://127.0.0.1:6310` directly. No login step is needed for the account that runs the server. Other accounts on the same Mac are not signed in.
+- A bookmark works only while the server runs. Use `./bin/cups-webui open` to get back in.
+- While the server is stopped, nothing holds port 6310. On a Mac with more than one account, another user's process can take the port. `open` checks who owns the listener and refuses to open the browser when it is not your account. A bookmark has no such check. See [SECURITY.md](./SECURITY.md).
+
+The server decides that a browser is in use from two things: an open event stream, and API requests that passed the origin and sign-in checks. Rejected requests do not count, so another web page or another local user cannot keep the server running.
+
+---
+
+## Commands and flags
+
+| Command | What it does |
+| :--- | :--- |
+| `cups-webui [serve] [flags]` | Start the server (the default) |
+| `cups-webui open [-port <int>]` | Open the server in your default browser with its session link. Starts the installed service first if it is stopped. Without a live session it opens `http://127.0.0.1:<port>` |
+| `cups-webui launchagent install [-port <int>]` | Register the service (default port 6310) |
+| `cups-webui launchagent uninstall` | Unload and remove the service |
+| `cups-webui launchagent status` | Show whether the service is installed and running |
+
+| Flag | Default | Description |
+| :--- | :--- | :--- |
+| `-port` | `6310` | Port to listen on |
+| `-host` | `127.0.0.1` | Host interface to bind to. Only loopback addresses (`127.0.0.1`, `::1`, `localhost`) are accepted; any other value stops the server at start |
+| `-mock` | `false` | Run with simulated CUPS mock data. `CUPS_WEBUI_MOCK=1` does the same |
+| `-open` | `false` | Open the default browser at start |
+| `-keep-running` | `false` | Keep the server running after the browser closes |
+
+Files the program writes:
+
+| Path | Content |
+| :--- | :--- |
+| `~/.cups-webui/session.json` | Address, process ID and session token of the running server. Readable only by your account. Removed at a clean exit |
+| `~/.cups-webui/ppd-uploads/` | Uploaded PPD files, kept for one hour |
+| `~/.cups-webui/accessory-overrides.json` | Notes on accessories that were set by hand |
+| `~/Library/LaunchAgents/com.papercut.cups-webui.plist` | The service definition |
+| `~/Library/Application Support/cups-webui/cups-webui` | The binary the service runs |
+| `~/Library/Logs/com.papercut.cups-webui.stdout.log`, `.stderr.log` | Service logs |
+
+---
+
+## Printer drivers
+
+### Driver lists
+
+The Swap Driver and Add Printer lists show first the drivers whose make is in the queue's name or description. A queue such as `Office_Xerox` starts with the Xerox drivers. "Generic" and "Raw" never count as a match. Other queues keep the order `lpinfo` gives.
+
+### Custom PPD uploads
+
+1. The page sends the file to `POST /api/v1/ppds/validate`.
+2. The server runs `cupstestppd` and its own scan for dangerous directives. The file must pass both. The page shows the reasons `cupstestppd` gives for a failure.
+3. A file that passes is stored in `~/.cups-webui/ppd-uploads/` under a random 32-character ID. The folder is readable only by your account. The response holds that ID as `upload_id`.
+4. Add Printer and the driver swap send the ID as `ppd_upload_id`. The server finds the stored file and passes it to `lpadmin -P`.
+
+The page never sends a file path, so the list of allowed PPD folders is unchanged. A stored upload is removed after one hour, the next time a file is uploaded.
 
 ### Xerox drivers (optional)
 
@@ -39,9 +168,32 @@ To remove the service: `./bin/cups-webui launchagent uninstall`
 
 ---
 
-## Fixes in This Copy
+## Setting printer accessories manually
 
-This copy differs from the upstream source. A code review found 19 defects, and all 19 are fixed here: 12 functional bugs and 7 security weaknesses. [CHANGELOG.md](./CHANGELOG.md) has the dated list.
+A driver usually detects a printer's accessories (trays, stapler, hole punch, duplexer) only when the queue is added, and some drivers ask the printer over SNMP. When the queue points at an IPP server such as PaperCut Mobility Print, the Mac can't reach the printer, so those accessories stay "not installed" and features like stapling are unavailable.
+
+The **Hardware Accessories** tab lists the queue's installable options, installed ones first, and marks values that differ from the driver's default as *Detected* or *Set manually*. CUPS administrators can click **Edit accessories** (Advanced) to change them. Saving does the same as `lpadmin -p <queue> -o <Option>=<Choice>`: it updates only that queue's PPD, never the shared driver PPD. The app then reads the PPD back from CUPS and shows what was stored.
+
+- These settings can't be checked against the printer. Confirm the printer has the hardware first. The warning is stronger when the queue doesn't point straight at the printer.
+- The value itself is stored by CUPS in the queue's PPD. Who set it, when, and the value it replaced are notes kept by this app in `~/.cups-webui/accessory-overrides.json`. **Reset to detected values** puts the old values back.
+- The notes belong to the macOS account running the service and stay on this Mac: another admin account, or a copy of the queue on another Mac, doesn't see them. "Set by" is that account's name, and the file can be edited by it, so treat the notes as a reminder, not an audit log. For a record of who changed a queue, see CUPS's own log (`/var/log/cups/access_log`).
+- Notes are tied to the queue's CUPS identity (`printer-uuid`), so a queue deleted and re-created with the same name doesn't inherit them. Notes for deleted queues are removed. If the notes file is damaged or was written by a newer version of the app, the tab still shows the values from CUPS, but changes are refused until the file is fixed.
+- If the queue's driver is replaced from the app, manual values are applied again.
+- For drivers in a small built-in table (currently "Generic Universal Mono"), **Ask the device for suggestions** reads the device's IPP attributes and fills in the form. Nothing is saved until you confirm.
+- The section isn't shown for driverless (AirPrint / IPP Everywhere) queues or for drivers without installable options.
+
+---
+
+## What differs from upstream
+
+[CHANGELOG.md](./CHANGELOG.md) has the dated list. In short:
+
+- **Installer**: `Install CUPS WebUI.command`, with the optional Xerox driver install.
+- **On-demand server**: the server stops when the browser closes, and the service no longer starts at login. See [How the server runs](#how-the-server-runs).
+- **19 defects from a first code review**: 12 functional bugs and 7 security weaknesses, in the two tables below.
+- **7 findings from a review of the on-demand server**, in the third table.
+- **Speed** and **driver list order**.
+- **Console error**: the page no longer logs a Content-Security-Policy error on each load. The inline theme script is now a file (`theme-init.js`) that `script-src 'self'` allows. The policy is unchanged.
 
 ### Functional fixes
 
@@ -73,20 +225,36 @@ This copy differs from the upstream source. A code review found 19 defects, and 
 | Token lifetime | After a crash the next start reused the token left in `~/.cups-webui/session.json`. | Every start generates a new token. An open page signs in again by itself. |
 | Server settings | A settings request that left a field out turned that setting off. | A field that is not sent keeps its current value. |
 
-### Custom PPD uploads
+### On-demand server review
 
-1. The page sends the file to `POST /api/v1/ppds/validate`.
-2. The server runs `cupstestppd` and its own scan for dangerous directives. The file must pass both.
-3. A file that passes is stored in `~/.cups-webui/ppd-uploads/` under a random 32-character ID. The folder is readable only by your account. The response holds that ID as `upload_id`.
-4. Add Printer and the driver swap send the ID as `ppd_upload_id`. The server finds the stored file and passes it to `lpadmin -P`.
+The first version of the on-demand server went through a second review. These are its 7 findings.
 
-The page never sends a file path, so the list of allowed PPD folders is unchanged. A stored upload is removed after one hour, the next time a file is uploaded.
+| Area | First version | Now |
+| :--- | :--- | :--- |
+| Start at login | The plist used `KeepAlive` with `SuccessfulExit` false. That key implies `RunAtLoad`, so the server still started at every login. A server that could not bind its port was restarted about every 10 seconds. | The plist has no `KeepAlive`. The server does not start at login and is not restarted. |
+| Free port | With the server stopped, another account on the Mac could bind the port, and `open` would show that process's page. | `open` refuses to open the browser when the listener belongs to another account. A bookmark is still not checked. |
+| `open` errors | `open` exited with status 1 when the service did not start or no session file appeared, even with a server running. | It prints a warning and opens the default address. It skips the start when macOS already runs the service. |
+| Server test | `open` tested the server with a bare TCP connection, which did not reset the idle timer. The server could stop before the browser arrived. | `open` sends an API request, which resets the timer. A request also no longer ends the 2-minute start window. |
+| Idle timer reset | Any API request reset the timer, including one the server then rejected. A web page or another local user could keep the server running. | Only a request that passed the origin and sign-in checks counts. |
+| Closing event stream | The stream left the subscriber count before it recorded its closing time. The server could stop with no grace period. | The time is recorded first. |
+| Clock | The timer used the wall clock. A time sync or a manual change could delay the shutdown or end the grace period at once. | The timer uses the monotonic clock. |
+
+### Speed
+
+Measured on a Mac with 5 queues and a 614 KB `error_log`.
+
+- The log page loads in about 7 ms, down from about 280 ms. The server reads the log from the newest line back and stops at the number of lines asked for.
+- One 5-second refresh of the page reads the printer list once, not twice. The list is shared for 1 second. The status request takes about 255 ms, down from about 400 ms.
+- The two slow `lpstat` calls run at the same time. A printer list read with nothing stored takes about 200 ms, down from about 290 ms.
+- Every command that changes CUPS drops the shared list, so the page shows the change on its next read. A change made outside CUPS WebUI can show up to 1 second later than before.
 
 ### How the fixes were checked
 
-- Unit tests cover each fix. They are in `internal/api/review_fixes_test.go`, `internal/cups/review_fixes_test.go` and `internal/macos/launchagent_test.go`.
+- Unit tests cover each fix. They are in `internal/api/review_fixes_test.go`, `internal/cups/review_fixes_test.go`, `internal/api/idle_test.go`, `internal/macos/launchagent_test.go`, `internal/peercred/peercred_darwin_test.go`, `internal/web/embed_test.go` and `cmd/cups-webui/main_test.go`.
 - The upstream binary and the new binary were run side by side against the same CUPS server. The upstream binary showed each of these faults and the new binary did not: the event stream cut at 15 seconds, the unchecked `printer` value, the empty job list for a failed `lpstat`, `-host 0.0.0.0`, `-host ::1`, the token in redirected output, the missing PPD failure reason, the dropped PPD upload, and the exit status of `open`.
 - A browser run in mock mode covered Add Printer with an uploaded PPD, the driver swap with an uploaded PPD, both message fixes, and sharing staying on after a save.
+- `open` was run from the built binary in a separate home folder with a stand-in browser launcher. It opened the session link for a live server, opened the plain address with no session file and with the server stopped, and refused the root-owned CUPS listener on port 631 with status 1.
+- The service was reinstalled from the built binary on one Mac. The installed plist has no `KeepAlive`, and the server stayed up while a browser tab was open.
 
 These parts have tests but were not run against a real system:
 
@@ -94,90 +262,13 @@ These parts have tests but were not run against a real system:
 - Reinstall and uninstall from the web page while the server runs as the service.
 - The driver package install in the installer.
 - Sharing, held jobs and stuck jobs on a CUPS server that has a shared queue or an active job.
+- A login with the new plist installed, to confirm that the server stays stopped.
+- `open` starting a stopped service through macOS.
+- A real listener of a second user account on the server's port. The check was run against a root-owned listener.
 
 ---
 
-## Quick Start
-
-A pre-compiled universal binary for macOS (supporting both Apple Silicon and Intel) is included directly in [`bin/cups-webui`](./bin/cups-webui), so you can run the app immediately without installing Go or Node.js.
-
-### 1. Launch the Web Interface
-Start the server and automatically open the interface in your browser:
-```bash
-./bin/cups-webui -open
-```
-The interface will be available at `http://127.0.0.1:6310`. Once the server is running, you can open (or bookmark) that address directly; no login step is needed for the user account that runs the server. Other accounts on the same Mac are not signed in.
-
-The server stops about 15 seconds after you close the last CUPS WebUI tab (and no sooner than 2 minutes after it started), or when you close the Terminal window. A page reload does not stop it. To keep it running after the browser closes, add `-keep-running`.
-
-### 2. Install as a Service (Recommended)
-Running the install command is all you need. It sets up cups-webui as a macOS LaunchAgent that runs only while you use it. `./bin/cups-webui open` starts the server and opens the browser. The server stops about 15 seconds after you close the last tab, and macOS does not restart it. You don't need to enable anything else in the web interface.
-```bash
-# Install the service: it starts now
-./bin/cups-webui launchagent install
-
-# Or install it on a different port
-./bin/cups-webui launchagent install -port 8631
-
-# Check service status
-./bin/cups-webui launchagent status
-
-# Open the web interface (starts the server if it is stopped)
-./bin/cups-webui open
-
-# Remove the service
-./bin/cups-webui launchagent uninstall
-```
-
-The install command copies the binary to `~/Library/Application Support/cups-webui/` and starts the service straight away. A bookmark to `http://127.0.0.1:6310` works only while the server runs, so use `./bin/cups-webui open` to get back in. On a Mac with more than one account, `open` also checks that the server on that port is yours; see [SECURITY.md](./SECURITY.md).
-
-**Install Service** under **CUPS Settings** in the web interface does the same thing, so use whichever is easier. It uses the port that instance is running on. Running `./bin/cups-webui -open` on its own (step 1) does not install the service.
-
-The service is installed for your user account only. It does not start at login or when the Mac boots.
-
-### 3. Run in Mock Mode (For Testing / Demo)
-Runs with simulated printers, queues, and diagnostic alerts without requiring active printer hardware:
-```bash
-./bin/cups-webui -mock -open
-```
-
----
-
-## Setting Printer Accessories Manually
-
-A driver usually detects a printer's accessories (trays, stapler, hole punch, duplexer) only when the queue is added, and some drivers ask the printer over SNMP. When the queue points at an IPP server such as PaperCut Mobility Print, the Mac can't reach the printer, so those accessories stay "not installed" and features like stapling are unavailable.
-
-The **Hardware Accessories** tab lists the queue's installable options, installed ones first, and marks values that differ from the driver's default as *Detected* or *Set manually*. CUPS administrators can click **Edit accessories** (Advanced) to change them. Saving does the same as `lpadmin -p <queue> -o <Option>=<Choice>`: it updates only that queue's PPD, never the shared driver PPD. The app then reads the PPD back from CUPS and shows what was stored.
-
-- These settings can't be checked against the printer. Confirm the printer has the hardware first. The warning is stronger when the queue doesn't point straight at the printer.
-- The value itself is stored by CUPS in the queue's PPD. Who set it, when, and the value it replaced are notes kept by this app in `~/.cups-webui/accessory-overrides.json`. **Reset to detected values** puts the old values back.
-- The notes belong to the macOS account running the service and stay on this Mac: another admin account, or a copy of the queue on another Mac, doesn't see them. "Set by" is that account's name, and the file can be edited by it, so treat the notes as a reminder, not an audit log. For a record of who changed a queue, see CUPS's own log (`/var/log/cups/access_log`).
-- Notes are tied to the queue's CUPS identity (`printer-uuid`), so a queue deleted and re-created with the same name doesn't inherit them. Notes for deleted queues are removed. If the notes file is damaged or was written by a newer version of the app, the tab still shows the values from CUPS, but changes are refused until the file is fixed.
-- If the queue's driver is replaced from the app, manual values are applied again.
-- For drivers in a small built-in table (currently "Generic Universal Mono"), **Ask the device for suggestions** reads the device's IPP attributes and fills in the form. Nothing is saved until you confirm.
-- The section isn't shown for driverless (AirPrint / IPP Everywhere) queues or for drivers without installable options.
-
----
-
-## CLI Options
-
-| Flag | Default | Description |
-| :--- | :--- | :--- |
-| `-port` | `6310` | Port to listen on |
-| `-host` | `127.0.0.1` | Host interface to bind to. Only loopback addresses (`127.0.0.1`, `::1`, `localhost`) are accepted; any other value stops the server at start |
-| `-mock` | `false` | Run with simulated CUPS mock data |
-| `-open` | `false` | Automatically open default browser on launch |
-| `-keep-running` | `false` | Keep the server running after the browser closes |
-
-Subcommands:
-- `cups-webui open` – Open the server in your default browser using its session link. Starts the installed service first if it is stopped
-- `cups-webui launchagent [install|uninstall|status]` – Manage the macOS background LaunchAgent service
-
----
-
-## Building from Source
-
-If you would like to build or modify the project yourself:
+## Building from source
 
 ### Prerequisites
 - [Go](https://go.dev/) (1.26+)
@@ -185,7 +276,7 @@ If you would like to build or modify the project yourself:
 
 The Go code uses only the standard library, so `go.mod` lists no dependencies and there is no `go.sum` file.
 
-### Build Steps
+### Build steps
 ```bash
 # Build the frontend SPA and compile the universal macOS binary (bin/cups-webui):
 make build
@@ -197,7 +288,7 @@ make build-go
 cd web && npm install && npm run build
 ```
 
-### Running Tests
+### Running tests
 Run the Go test suite:
 ```bash
 make test
@@ -219,6 +310,7 @@ go test ./... -skip 'TestCLIAdapter(AddAndRemoveKyoceraPrinter|SetDefaultPrinter
 ## Architecture
 
 - **Backend (`cmd/cups-webui/main.go`, `internal/api/`, `internal/cups/`)**: Pure Go, standard library only, using `net/http` and the native CUPS command-line tools (`lpstat`, `lpadmin`, `lpoptions`, `cancel`, `cupsctl`, `cupsdisable`, `cupsenable`).
+- **Platform code (`internal/macos/`, `internal/peercred/`)**: the LaunchAgent service, and the lookup of which user owns a loopback connection.
 - **Frontend (`web/`)**: React 19 + TypeScript + Tailwind CSS v4 SPA, compiled directly into `internal/web/dist` and embedded into the Go binary with `go:embed`.
 - **Packaging**: Single executable (`./bin/cups-webui`) with zero runtime dependencies.
 
@@ -227,13 +319,14 @@ go test ./... -skip 'TestCLIAdapter(AddAndRemoveKyoceraPrinter|SetDefaultPrinter
 <!-- git-understand:start -->
 ## Project map
 
-This repository is the PaperCut CUPS WebUI with a double-click installer added for macOS 27, which removed the built-in CUPS web interface. The Go backend is 12,250 lines and the React frontend is 6,651 lines. Most of the structure is in one place, because the CUPS Adapter Layer holds 278 of the 481 nodes in the graph.
+This repository is the PaperCut CUPS WebUI with a double-click installer added for macOS 27, which removed the built-in CUPS web interface. The Go backend is 13,845 lines and the React frontend is 6,689 lines.
 
-- The CUPS Adapter Layer is the base of the project. The HTTP API Layer has 142 links into it, which is three times the next largest arrow.
+The two diagrams come from a code graph built on 2026-11-19, 15 commits before commit `323254c`. The Composition and History tables were measured at commit `323254c`.
+
+- The CUPS Adapter Layer is the base of the project. It holds 278 of the 481 nodes in the graph, and the HTTP API Layer has 142 links into it, which is three times the next largest arrow.
 - 'IsValidPrinterName' in 'internal/cups/validation.go' is called 34 times, more than twice the next function.
 - The frontend and the Go code do not import each other. In the full graph the only link between them is 'web/vite.config.ts', which configures 'internal/web/embed.go'. At run time the frontend calls the Go API over HTTP from 'web/src/api/client.ts', and the graph does not draw that.
 - 'cmd/cups-webui/main.go' has 36 outgoing links, the most of any file.
-- The Go and TypeScript source arrived in the first commit. The commits after it changed the installer, the documents, '.gitignore' and the driver image, until the fixes listed under "Fixes in This Copy" changed the Go and TypeScript source.
 
 ### Architecture
 
@@ -298,32 +391,44 @@ flowchart LR
 
 ### Composition
 
-Go is 12,250 lines in 37 files and TypeScript is 6,651 lines in 20 files. The 'internal' directory is 11,992 lines. That is more than 'web' at 9,034 lines, and 1,982 of the 'web' lines are the lockfile.
+Go is 13,845 lines in 48 files and TypeScript is 6,689 lines in 20 files.
 
-104 files, 22004 lines.
+117 files, 23626 lines.
 
 | Language | Files | Lines |
 |---|---:|---:|
-| Go | 37 | 12250 |
-| TypeScript | 20 | 6651 |
+| Go | 48 | 13845 |
+| TypeScript | 20 | 6689 |
 | Lockfile | 1 | 1982 |
-| Docs | 4 | 506 |
+| Docs | 4 | 485 |
 | CSS | 3 | 225 |
 | Other | 29 | 133 |
 | JSON | 5 | 95 |
-| Shell | 1 | 63 |
+| Shell | 1 | 71 |
 
 ### History
 
-Every commit is from 2026-11-19. The numbers in this section and in the Composition section were measured before the fixes listed under "Fixes in This Copy". Up to that point the changes after the first commit are to the installer and the documents.
+The Go and TypeScript source arrived in the first commit. The first commits after it changed the installer and the documents. The later ones changed the source: the review fixes, the speed work, the driver list order and the on-demand server.
 
-7 commits, 2026-11-19.
+19 commits, 2026-11-19 to 2026-11-20.
 
 | Hotspot | Commits | Lines |
 |---|---:|---:|
-| `Install CUPS WebUI.command` | 3 | 63 |
+| `internal/cups/cli_adapter.go` | 3 | 1514 |
+| `web/src/components/PrinterConfigModal.tsx` | 3 | 967 |
+| `internal/cups/mock_adapter.go` | 2 | 1428 |
+| `web/src/components/AddPrinterModal.tsx` | 3 | 929 |
+| `cmd/cups-webui/main.go` | 4 | 430 |
+| `internal/macos/launchagent.go` | 4 | 327 |
+| `web/src/App.tsx` | 2 | 635 |
+| `internal/api/handlers.go` | 2 | 623 |
 
-The table has one row because the installer is the only code file with more than one commit. The Go and TypeScript files have one commit each.
+| Changed together | Commits | Linked in code |
+|---|---:|---|
+| `cmd/cups-webui/main.go` + `internal/api/events.go` | 3 | yes |
+| `cmd/cups-webui/main.go` + `internal/api/security.go` | 3 | yes |
+| `cmd/cups-webui/main.go` + `internal/macos/launchagent.go` | 3 | yes |
+| `cmd/cups-webui/main.go` + `internal/macos/launchagent_test.go` | 3 | yes |
 
 <!-- git-understand:end -->
 
@@ -331,13 +436,12 @@ The table has one row because the installer is the only code file with more than
 
 ## Security
 
-The security model is described in [SECURITY.md](./SECURITY.md). Please report suspected vulnerabilities through <https://www.papercut.com/contact/security/> and not as public issues.
+The security model is described in [SECURITY.md](./SECURITY.md). Please report suspected vulnerabilities in the upstream project through <https://www.papercut.com/contact/security/> and not as public issues.
 
 ## License
 
 MIT. See [LICENSE](./LICENSE). Bundled fonts are covered by their own licences; see [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
 
-## About This Project
+## About the upstream project
 
-CUPS WebUI (`cups-webui`) is an open-source project actively maintained by [PaperCut Software](https://www.papercut.com/), makers of print management software. It was built after Apple decided to remove the built-in CUPS Web Interface (`localhost:631`) in macOS 27 Golden Gate. Although admins can still use commands like `lpadmin` and `lpstat` to manage print queues and default settings, `cups-webui` offers a much easier way to manage them.
-
+CUPS WebUI (`cups-webui`) is an open-source project maintained by [PaperCut Software](https://www.papercut.com/), makers of print management software. It was built after Apple decided to remove the built-in CUPS Web Interface (`localhost:631`) in macOS 27 Golden Gate. Although admins can still use commands like `lpadmin` and `lpstat` to manage print queues and default settings, `cups-webui` offers a much easier way to manage them.
