@@ -56,11 +56,6 @@ const plistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
     <string>{{xml .WorkingDir}}</string>
     <key>RunAtLoad</key>
     <false/>
-    <key>KeepAlive</key>
-    <dict>
-        <key>SuccessfulExit</key>
-        <false/>
-    </dict>
     <key>StandardOutPath</key>
     <string>{{xml .StdOutPath}}</string>
     <key>StandardErrorPath</key>
@@ -231,6 +226,13 @@ func IsInstalled() bool {
 	return err == nil
 }
 
+// IsRunning reports whether launchd has a process for the LaunchAgent. The job
+// stays loaded while the server is stopped; only a running job lists a PID.
+func IsRunning() bool {
+	out, err := exec.Command("launchctl", "list", LaunchAgentLabel).CombinedOutput()
+	return err == nil && strings.Contains(string(out), `"PID"`)
+}
+
 // Start asks launchd to run the installed LaunchAgent. The server exits when
 // the browser closes, so 'cups-webui open' starts it again with this.
 func Start() error {
@@ -304,9 +306,7 @@ func GetStatus(binaryPath string) (*LaunchAgentStatus, error) {
 	detail := "Not installed"
 	if installed {
 		detail = "Installed"
-		out, err := exec.Command("launchctl", "list", LaunchAgentLabel).CombinedOutput()
-		// The job stays loaded while the server is stopped; only a running job lists a PID.
-		if err == nil && strings.Contains(string(out), `"PID"`) {
+		if IsRunning() {
 			running = true
 			detail = "Installed and running under launchd"
 		} else {

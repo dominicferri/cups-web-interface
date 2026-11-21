@@ -24,7 +24,7 @@ xattr -d com.apple.quarantine "$BIN" 2>/dev/null
 # A copy started by hand holds the port, so the service could not start and the check below would pass against the wrong copy.
 # The service stays loaded while it is stopped; only a running service lists a PID.
 if curl -s -o /dev/null --max-time 1 "$URL" && ! launchctl list com.papercut.cups-webui 2>/dev/null | grep -q '"PID"'; then
-  fail "Another copy of CUPS WebUI already uses $URL. Close the Terminal window that runs it, then run this installer again."
+  fail "Another program already uses $URL. If you started CUPS WebUI by hand, close the Terminal window that runs it. Then run this installer again."
 fi
 
 echo "Installing CUPS WebUI..."

@@ -90,9 +90,11 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 
 	ch, unsubscribe := s.events.Subscribe()
-	// The grace period of WaitIdle starts when the stream closes.
-	defer s.touch()
+	// The grace period of WaitIdle starts when the stream closes. Deferred
+	// calls run last-first: touch must run before unsubscribe, or WaitIdle can
+	// see no subscriber and an old timestamp.
 	defer unsubscribe()
+	defer s.touch()
 
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()

@@ -19,8 +19,9 @@ type Server struct {
 	events   *EventBroadcaster
 	token    string
 
-	// started and lastActivity feed WaitIdle. lastActivity is the UnixNano
-	// time of the last /api/ request or closed event stream, 0 before the first.
+	// started and lastActivity feed WaitIdle. lastActivity is the time since
+	// started, in nanoseconds, of the last accepted /api/ request or closed
+	// event stream, 0 before the first.
 	started      time.Time
 	lastActivity atomic.Int64
 
