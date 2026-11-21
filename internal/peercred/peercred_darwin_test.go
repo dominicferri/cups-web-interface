@@ -54,6 +54,29 @@ func TestOwnerUIDLiveConnections(t *testing.T) {
 	}
 }
 
+// 'cups-webui open' checks who owns a listener from the dialing side, before
+// the listener has accepted the connection.
+func TestOwnerUIDFromDialingSide(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("cannot listen: %v", err)
+	}
+	defer ln.Close()
+	client, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	uid, err := OwnerUID(client.LocalAddr(), client.RemoteAddr())
+	if err != nil {
+		t.Fatalf("OwnerUID: %v", err)
+	}
+	if uid != uint32(os.Getuid()) {
+		t.Fatalf("expected uid %d, got %d", os.Getuid(), uid)
+	}
+}
+
 func TestOwnerUIDPeerNotLocal(t *testing.T) {
 	// A peer address that has no socket on this machine (e.g. a LAN client).
 	local := &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 6310}

@@ -134,10 +134,6 @@ func (s *Server) securityMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		if strings.HasPrefix(r.URL.Path, "/api/") {
-			s.touch()
-		}
-
 		origin := r.Header.Get("Origin")
 
 		// 2. CORS Defense: Only allow loopback origins
@@ -236,6 +232,13 @@ func (s *Server) securityMiddleware(next http.Handler) http.Handler {
 					return
 				}
 			}
+		}
+
+		// Only a request that passed every check above, from a caller with the
+		// token or the server's own user, counts as browser activity. Rejected
+		// requests and other users cannot hold off the idle shutdown.
+		if strings.HasPrefix(r.URL.Path, "/api/") && (s.isAuthenticated(r) || s.isTrustedPeer(r)) {
+			s.touch()
 		}
 
 		next.ServeHTTP(w, r)

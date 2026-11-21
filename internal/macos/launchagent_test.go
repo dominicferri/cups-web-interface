@@ -23,14 +23,15 @@ func TestGeneratePlist(t *testing.T) {
 	if !strings.Contains(plist, "<string>6310</string>") {
 		t.Errorf("expected port in plist")
 	}
-	// The server exits when the browser closes. launchd must restart it after
-	// a crash only, and must not start it at login.
+	// The server exits when the browser closes, and launchd must not start it
+	// at login. KeepAlive with SuccessfulExit implies RunAtLoad (launchd.plist(5)),
+	// so the plist has no KeepAlive at all.
 	compact := strings.Join(strings.Fields(plist), "")
 	if !strings.Contains(compact, "<key>RunAtLoad</key><false/>") {
 		t.Errorf("expected RunAtLoad false in plist")
 	}
-	if !strings.Contains(compact, "<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>") {
-		t.Errorf("expected KeepAlive to restart only after an unsuccessful exit")
+	if strings.Contains(plist, "KeepAlive") {
+		t.Errorf("expected no KeepAlive in plist")
 	}
 	if !strings.Contains(plist, "<key>WorkingDirectory</key>") {
 		t.Errorf("expected WorkingDirectory key in plist")

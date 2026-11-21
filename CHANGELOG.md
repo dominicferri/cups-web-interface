@@ -4,10 +4,21 @@
 
 ### Server stops when the browser closes
 
-- The server exits about 15 seconds after the last CUPS WebUI tab closes. It counts open event streams and recent API requests, so a page reload or a second tab does not stop it. A server that no browser connects to exits after 2 minutes. `-keep-running` turns this off.
-- The LaunchAgent no longer starts the server at login and restarts it only after a crash (`RunAtLoad` false, `KeepAlive` with `SuccessfulExit` false). Before, launchd restarted the server every time it exited, so it could never stop. Run `launchagent install` again to replace a plist from an earlier version.
+- The server exits about 15 seconds after the last CUPS WebUI tab closes, and no sooner than 2 minutes after it started. It counts open event streams and recent API requests, so a page reload or a second tab does not stop it. A server that no browser connects to exits after 2 minutes. `-keep-running` turns this off.
+- The LaunchAgent no longer starts the server at login, and launchd no longer restarts it (`RunAtLoad` false, no `KeepAlive`). Before, launchd restarted the server every time it exited, so it could never stop. Run `launchagent install` again to replace a plist from an earlier version.
 - `cups-webui open` starts the installed service when the server is stopped, waits for it, then opens the browser. A bookmark to `http://127.0.0.1:6310` works only while the server runs.
 - An instance that exits no longer removes a `session.json` that a later instance wrote. Each start still replaces the file, so `cups-webui open` goes to the instance started last.
+
+### Review fixes for the idle shutdown
+
+- The plist has no `KeepAlive`. The first version used `KeepAlive` with `SuccessfulExit` false, which implies `RunAtLoad` (launchd.plist(5)), so the server still started at every login. A Go program that panics exits with status 2, not by a signal, so `KeepAlive` with `Crashed` would not restart it either. `cups-webui open` is the one way the service starts again. A server that cannot bind its port now exits once; before, launchd restarted it about every 10 seconds.
+- `cups-webui open` refuses to open the browser when the process that listens on the port belongs to another user account. With the server stopped the port is free, and another account on the Mac could bind it and serve its own page at the CUPS WebUI address. A bookmark still has no such check; SECURITY.md says so.
+- `cups-webui open` no longer exits with an error when the service does not start or no session file appears. It prints a warning and opens the default address, as it did before the idle shutdown. It also skips the start when launchd already runs the service, so a missing `session.json` costs no 5-second wait.
+- `cups-webui open` tests the server with an API request, not a bare TCP connection. The request resets the idle timer, so the server cannot stop between the test and the first request of the browser.
+- Only an API request that passed the origin and sign-in checks resets the idle timer. Before, a rejected request (cross-site, no token) counted, so any web page or another local user could keep the server running.
+- A request no longer ends the 2-minute start window. The test request from `cups-webui open` would have left the browser 15 seconds to open.
+- A closing event stream records its time before it leaves the subscriber count. In the old order the server could see no subscriber and an old time, and stop with no grace period.
+- The idle timer uses the monotonic clock. A step of the system clock (time sync after sleep, a manual change) no longer delays the shutdown or ends the grace period at once.
 
 ### Fixes
 

@@ -108,10 +108,10 @@ Start the server and automatically open the interface in your browser:
 ```
 The interface will be available at `http://127.0.0.1:6310`. Once the server is running, you can open (or bookmark) that address directly; no login step is needed for the user account that runs the server. Other accounts on the same Mac are not signed in.
 
-The server stops about 15 seconds after you close the last CUPS WebUI tab, or when you close the Terminal window. A page reload does not stop it. To keep it running after the browser closes, add `-keep-running`.
+The server stops about 15 seconds after you close the last CUPS WebUI tab (and no sooner than 2 minutes after it started), or when you close the Terminal window. A page reload does not stop it. To keep it running after the browser closes, add `-keep-running`.
 
 ### 2. Install as a Service (Recommended)
-Running the install command is all you need. It sets up cups-webui as a macOS LaunchAgent that runs only while you use it. `./bin/cups-webui open` starts the server and opens the browser. The server stops about 15 seconds after you close the last tab, and macOS restarts it only if it crashes. You don't need to enable anything else in the web interface.
+Running the install command is all you need. It sets up cups-webui as a macOS LaunchAgent that runs only while you use it. `./bin/cups-webui open` starts the server and opens the browser. The server stops about 15 seconds after you close the last tab, and macOS does not restart it. You don't need to enable anything else in the web interface.
 ```bash
 # Install the service: it starts now
 ./bin/cups-webui launchagent install
@@ -129,7 +129,7 @@ Running the install command is all you need. It sets up cups-webui as a macOS La
 ./bin/cups-webui launchagent uninstall
 ```
 
-The install command copies the binary to `~/Library/Application Support/cups-webui/` and starts the service straight away. A bookmark to `http://127.0.0.1:6310` works only while the server runs, so use `./bin/cups-webui open` to get back in.
+The install command copies the binary to `~/Library/Application Support/cups-webui/` and starts the service straight away. A bookmark to `http://127.0.0.1:6310` works only while the server runs, so use `./bin/cups-webui open` to get back in. On a Mac with more than one account, `open` also checks that the server on that port is yours; see [SECURITY.md](./SECURITY.md).
 
 **Install Service** under **CUPS Settings** in the web interface does the same thing, so use whichever is easier. It uses the port that instance is running on. Running `./bin/cups-webui -open` on its own (step 1) does not install the service.
 

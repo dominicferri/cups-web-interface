@@ -15,6 +15,7 @@ Include the affected version or commit, steps to reproduce, and the impact you o
 ## 1. Loopback Isolation & Web Perimeter Defense
 
 * **Loopback Binding by Default:** The HTTP server binds to `127.0.0.1` by default and is intended to be used on the loopback interface only. The server refuses to start when `-host` is not a loopback address.
+* **The Port Is Free While the Server Is Stopped:** The server exits when the browser closes, and nothing holds `127.0.0.1:6310` until the next start. On a Mac with more than one account, another user's process can bind the port in that time. `cups-webui open` checks who owns the listener and refuses to open the browser when it is not your account. A bookmark has no such check, so on a shared Mac use `cups-webui open`, or run the server with `-keep-running`.
 * **DNS Rebinding Protection:** Every incoming HTTP request must supply a valid loopback `Host` header (`127.0.0.1`, `localhost`, or `[::1]`). Requests routed via external hostnames or DNS rebinding domains are terminated with `400 Bad Request`.
 * **CSRF & Cross-Site Defense:** 
   * Every API request (reads as well as `POST`, `PUT`, `DELETE`) is checked against browser metadata (`Sec-Fetch-Site`). Requests a browser marks as coming from another site, or from another `localhost` port, are refused with `403 Forbidden`, so other web pages can't make the server run CUPS commands. Clients that don't send the header (curl, scripts) are handled by the token and connection-owner rules.

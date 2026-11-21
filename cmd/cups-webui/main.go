@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"github.com/PaperCutSoftware/cups-web-interface/internal/api"
@@ -175,7 +176,8 @@ func runServer() {
 	}()
 
 	// Without -keep-running the server stops when the last browser tab closes.
-	// 15 s covers a page reload; 2 min covers a browser that is still opening.
+	// 15 s covers a page reload. The server runs for at least 2 min, which
+	// covers a browser that is still opening.
 	idle := make(chan struct{})
 	if !*keepRunning {
 		go func() {
@@ -207,35 +209,52 @@ func handleOpenCommand(args []string) {
 	port := fs.Int("port", 0, "Target CUPS webui port (defaults to active session)")
 	_ = fs.Parse(args)
 
-	session, err := loadSessionInfo()
+	// The page of another user's process must never open as CUPS webui.
+	answers := func(host string, port int) bool {
+		ok, err := serverAnswers(host, port)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v. Not opening the browser.\n", err)
+			os.Exit(1)
+		}
+		return ok
+	}
+	liveSession := func() *SessionInfo {
+		session, err := loadSessionInfo()
+		if err != nil || !answers(session.Host, session.Port) {
+			return nil
+		}
+		return session
+	}
+
+	session := liveSession()
 	// The server stops when the browser closes. Start the installed service
 	// again and wait for the session of the new process.
-	if (err != nil || !sessionAnswers(session)) && macos.IsInstalled() {
-		if startErr := macos.Start(); startErr != nil {
-			fmt.Fprintf(os.Stderr, "Error starting the CUPS webui service: %v\n", startErr)
-			os.Exit(1)
-		}
-		started := false
-		for deadline := time.Now().Add(5 * time.Second); !started && time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
-			session, err = loadSessionInfo()
-			started = err == nil && sessionAnswers(session)
-		}
-		if !started {
-			fmt.Fprintln(os.Stderr, "Error: the CUPS webui service did not start. Check ~/Library/Logs for com.papercut.cups-webui logs.")
-			os.Exit(1)
+	if session == nil && macos.IsInstalled() && !macos.IsRunning() {
+		if err := macos.Start(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not start the CUPS webui service: %v\n", err)
+		} else {
+			for deadline := time.Now().Add(5 * time.Second); session == nil && time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+				session = liveSession()
+			}
+			if session == nil {
+				fmt.Fprintln(os.Stderr, "Warning: the CUPS webui service did not start. Check ~/Library/Logs for com.papercut.cups-webui logs.")
+			}
 		}
 	}
 	targetURL := ""
-	if err == nil && session != nil && session.URL != "" {
+	if session != nil && session.URL != "" {
 		targetURL = session.URL
 		if session.Token != "" {
 			targetURL = fmt.Sprintf("%s/?token=%s", targetURL, session.Token)
 		}
 	} else {
+		// No live session file. A server that runs at the default address
+		// still signs this user in by connection owner.
 		targetPort := 6310
 		if *port > 0 {
 			targetPort = *port
 		}
+		answers("127.0.0.1", targetPort)
 		targetURL = fmt.Sprintf("http://127.0.0.1:%d", targetPort)
 	}
 
@@ -349,17 +368,44 @@ func loadSessionInfo() (*SessionInfo, error) {
 	return &info, nil
 }
 
-// sessionAnswers reports whether the server that wrote the session file still listens.
-func sessionAnswers(session *SessionInfo) bool {
-	if session == nil {
-		return false
+// serverAnswers reports whether a CUPS webui server of this user answers at
+// host:port. Its /api/ request resets the server's idle timer, so the server
+// does not stop while the browser opens. The error is set when the listener
+// belongs to another user, or its owner cannot be checked.
+func serverAnswers(host string, port int) (bool, error) {
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
+	foreign := false
+	client := &http.Client{
+		Timeout: 500 * time.Millisecond,
+		Transport: &http.Transport{
+			DisableKeepAlives: true,
+			DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+				conn, err := (&net.Dialer{}).DialContext(ctx, network, address)
+				if err != nil {
+					return nil, err
+				}
+				uid, err := peercred.OwnerUID(conn.LocalAddr(), conn.RemoteAddr())
+				if errors.Is(err, peercred.ErrUnsupported) {
+					return conn, nil
+				}
+				if err != nil || uid != uint32(os.Getuid()) {
+					foreign = true
+					_ = conn.Close()
+					return nil, errors.New("listener is not owned by this user")
+				}
+				return conn, nil
+			},
+		},
 	}
-	conn, err := net.DialTimeout("tcp", net.JoinHostPort(session.Host, strconv.Itoa(session.Port)), 500*time.Millisecond)
+	resp, err := client.Get("http://" + addr + "/api/v1/auth/status")
+	if foreign {
+		return false, fmt.Errorf("the process that listens at %s does not belong to your user account", addr)
+	}
 	if err != nil {
-		return false
+		return false, nil
 	}
-	_ = conn.Close()
-	return true
+	_ = resp.Body.Close()
+	return resp.StatusCode == http.StatusOK, nil
 }
 
 // clearSessionInfo removes the session file, unless another instance wrote it.
