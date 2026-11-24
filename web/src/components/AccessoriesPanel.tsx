@@ -14,7 +14,9 @@ import type {
   AccessoryOption,
   AccessoryReport,
   AccessorySource,
+  AccessorySuggestion,
   AccessorySuggestions,
+  SNMPInventory,
 } from '../types/cups';
 import { api } from '../api/client';
 import { choiceLabel, isFitted } from '../utils/accessories';
@@ -97,6 +99,12 @@ export const AccessoriesPanel: React.FC<AccessoriesPanelProps> = ({ printerName,
   const [saving, setSaving] = useState(false);
   const [suggestions, setSuggestions] = useState<AccessorySuggestions | null>(null);
   const [checking, setChecking] = useState(false);
+  const [snmpHost, setSnmpHost] = useState(initialReport?.snmp_host_hint ?? '');
+  const [snmpCommunity, setSnmpCommunity] = useState('public');
+  const [snmpResult, setSnmpResult] = useState<SNMPInventory | null>(null);
+  const [snmpChecking, setSnmpChecking] = useState(false);
+  const snmpHostId = useId();
+  const snmpCommunityId = useId();
   const warningId = useId();
   const topRef = useRef<HTMLDivElement>(null);
   const warningRef = useRef<HTMLDivElement>(null);
@@ -105,6 +113,7 @@ export const AccessoriesPanel: React.FC<AccessoriesPanelProps> = ({ printerName,
     setReport(rep);
     onReport?.(rep);
     setDraft(draftFrom(rep));
+    if (rep.snmp_host_hint) setSnmpHost((h) => h || rep.snmp_host_hint || '');
   }, [onReport]);
 
   // The parent keys this component by queue name, so state starts fresh for each queue.
@@ -199,6 +208,7 @@ export const AccessoriesPanel: React.FC<AccessoriesPanelProps> = ({ printerName,
     setEditing(false);
     setConfirming(null);
     setSuggestions(null);
+    setSnmpResult(null);
   };
 
   const startConfirm = (kind: 'save' | 'reset') => {
@@ -213,6 +223,7 @@ export const AccessoriesPanel: React.FC<AccessoriesPanelProps> = ({ printerName,
     setEditing(false);
     setConfirming(null);
     setSuggestions(null);
+    setSnmpResult(null);
     setSuccess(message);
     onChanged?.();
   };
@@ -269,6 +280,105 @@ export const AccessoriesPanel: React.FC<AccessoriesPanelProps> = ({ printerName,
     } finally {
       setChecking(false);
     }
+  };
+
+  const handleSnmpCheck = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSnmpChecking(true);
+    setError(null);
+    try {
+      setSnmpResult(await api.snmpCheckAccessories(printerName, snmpHost.trim(), snmpCommunity));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to check the printer over SNMP');
+    } finally {
+      setSnmpChecking(false);
+    }
+  };
+
+  const renderSuggestionList = (list: AccessorySuggestion[]) => (
+    <ul className="space-y-1.5">
+      {list.map((s) => {
+        const opt = report?.options.find((o) => o.key === s.key);
+        const applied = draft[s.key] === s.value;
+        return (
+          <li key={s.key} className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <span className="font-semibold text-slate-800 dark:text-slate-200">
+                {s.label}: {opt ? choiceLabel(opt, s.value) : s.value}
+              </span>
+              <p className="text-slate-500 dark:text-slate-400">{s.evidence}</p>
+            </div>
+            <button
+              type="button"
+              disabled={applied || saving || confirming !== null}
+              onClick={() => setDraft((prev) => ({ ...prev, [s.key]: s.value }))}
+              className="shrink-0 px-2 py-1 rounded-lg text-xs font-semibold border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-50 cursor-pointer"
+            >
+              {applied ? 'In form' : 'Use'}
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+
+  const renderSnmpResult = (r: SNMPInventory) => {
+    const sections: { title: string; items: string[] }[] = [
+      {
+        title: 'Paper sources',
+        items: r.inputs.map((i) =>
+          [i.name || i.description || `Input ${i.index}`, i.type, i.capacity ? `${i.capacity} sheets` : '', i.media || '']
+            .filter(Boolean)
+            .join(' · '),
+        ),
+      },
+      {
+        title: 'Output bins',
+        items: r.outputs.map((o) =>
+          [o.name || o.description || `Output ${o.index}`, o.type, o.capacity ? `${o.capacity} sheets` : '']
+            .filter(Boolean)
+            .join(' · '),
+        ),
+      },
+      {
+        title: 'Finishing',
+        items: r.finishers.map((f) =>
+          [f.type, f.description || '', f.present ? `present: ${f.present}` : ''].filter(Boolean).join(' · '),
+        ),
+      },
+      { title: 'Duplex', items: r.duplex },
+      { title: 'Devices', items: r.devices },
+    ];
+    return (
+      <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs space-y-2" role="status">
+        {r.queried && (
+          <p className="font-semibold text-slate-800 dark:text-slate-200">
+            Installed on {r.system_name || r.host}
+            {r.system_description && (
+              <span className="block font-normal text-slate-500 dark:text-slate-400 break-words">{r.system_description}</span>
+            )}
+          </p>
+        )}
+        {r.queried &&
+          sections
+            .filter((sec) => sec.items.length > 0)
+            .map((sec) => (
+              <div key={sec.title}>
+                <p className="font-semibold text-slate-700 dark:text-slate-300">{sec.title}</p>
+                <ul className="list-disc pl-4 text-slate-600 dark:text-slate-400">
+                  {sec.items.map((it, i) => (
+                    <li key={i} className="break-words">{it}</li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+        {r.suggestions.length > 0 && renderSuggestionList(r.suggestions)}
+        {r.note && <p className="text-slate-500 dark:text-slate-400">{r.note}</p>}
+        {r.suggestions.length > 0 && (
+          <p className="text-slate-500 dark:text-slate-400">Suggestions only fill in the form. Nothing is saved until you save.</p>
+        )}
+      </div>
+    );
   };
 
   const renderRow = (o: AccessoryOption) => {
@@ -431,32 +541,7 @@ export const AccessoriesPanel: React.FC<AccessoriesPanelProps> = ({ printerName,
             </button>
             {suggestions && (
               <div className="p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs space-y-2" role="status">
-                {suggestions.suggestions.length > 0 && (
-                  <ul className="space-y-1.5">
-                    {suggestions.suggestions.map((s) => {
-                      const opt = report.options.find((o) => o.key === s.key);
-                      const applied = draft[s.key] === s.value;
-                      return (
-                        <li key={s.key} className="flex items-center justify-between gap-3">
-                          <div className="min-w-0">
-                            <span className="font-semibold text-slate-800 dark:text-slate-200">
-                              {s.label}: {opt ? choiceLabel(opt, s.value) : s.value}
-                            </span>
-                            <p className="text-slate-500 dark:text-slate-400">{s.evidence}</p>
-                          </div>
-                          <button
-                            type="button"
-                            disabled={applied || saving || confirming !== null}
-                            onClick={() => setDraft((prev) => ({ ...prev, [s.key]: s.value }))}
-                            className="shrink-0 px-2 py-1 rounded-lg text-xs font-semibold border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-50 cursor-pointer"
-                          >
-                            {applied ? 'In form' : 'Use'}
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
+                {suggestions.suggestions.length > 0 && renderSuggestionList(suggestions.suggestions)}
                 {suggestions.note && <p className="text-slate-500 dark:text-slate-400">{suggestions.note}</p>}
                 {suggestions.suggestions.length > 0 && (
                   <p className="text-slate-500 dark:text-slate-400">Suggestions only fill in the form. Nothing is saved until you save.</p>
@@ -464,6 +549,54 @@ export const AccessoriesPanel: React.FC<AccessoriesPanelProps> = ({ printerName,
               </div>
             )}
           </div>
+          {report.snmp_enabled && (
+            <div className="space-y-2">
+              <form onSubmit={handleSnmpCheck} className="flex flex-wrap items-end gap-2">
+                <div>
+                  <label htmlFor={snmpHostId} className="block text-xs font-semibold text-slate-600 dark:text-slate-300">
+                    Printer IP address or host name
+                  </label>
+                  <input
+                    id={snmpHostId}
+                    type="text"
+                    value={snmpHost}
+                    onChange={(e) => setSnmpHost(e.target.value)}
+                    placeholder="10.0.0.25"
+                    autoComplete="off"
+                    spellCheck={false}
+                    required
+                    className="mt-0.5 w-48 px-2 py-1 text-xs rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200"
+                  />
+                </div>
+                <div>
+                  <label htmlFor={snmpCommunityId} className="block text-xs font-semibold text-slate-600 dark:text-slate-300">
+                    Community
+                  </label>
+                  <input
+                    id={snmpCommunityId}
+                    type="password"
+                    value={snmpCommunity}
+                    onChange={(e) => setSnmpCommunity(e.target.value)}
+                    autoComplete="off"
+                    required
+                    className="mt-0.5 w-28 px-2 py-1 text-xs rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={snmpChecking || saving || !snmpHost.trim()}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-50 cursor-pointer"
+                >
+                  {snmpChecking ? <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" /> : <Search className="w-3.5 h-3.5" aria-hidden="true" />}
+                  <span>Check installed hardware (SNMP)</span>
+                </button>
+              </form>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Use the printer's own address, not the print server's. This Mac's network must reach the printer on UDP port 161.
+              </p>
+              {snmpResult && renderSnmpResult(snmpResult)}
+            </div>
+          )}
         </div>
       )}
 

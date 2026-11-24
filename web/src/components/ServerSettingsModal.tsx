@@ -12,8 +12,9 @@ import {
   Save,
   Power,
   Trash2,
+  Radar,
 } from 'lucide-react';
-import type { ServerSettings, LaunchAgentStatus } from '../types/cups';
+import type { ServerSettings, LaunchAgentStatus, AccessoryFeatureStatus } from '../types/cups';
 import { api } from '../api/client';
 import { useModalDialog } from '../utils/useModalDialog';
 
@@ -41,6 +42,11 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
   const [launchAgentLoading, setLaunchAgentLoading] = useState(false);
   const [launchAgentActionLoading, setLaunchAgentActionLoading] = useState(false);
   const [launchAgentMsg, setLaunchAgentMsg] = useState<string | null>(null);
+
+  // Optional SNMP hardware check (off by default)
+  const [features, setFeatures] = useState<AccessoryFeatureStatus | null>(null);
+  const [featuresSaving, setFeaturesSaving] = useState(false);
+  const snmpToggleId = useId();
 
   const fetchLaunchAgent = async () => {
     try {
@@ -70,8 +76,24 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
         .finally(() => setLoading(false));
 
       fetchLaunchAgent();
+      api
+        .getAccessoryFeatures()
+        .then(setFeatures)
+        .catch(() => setFeatures(null));
     }
   }, [isOpen]);
+
+  const handleToggleSnmp = async (enabled: boolean) => {
+    setFeaturesSaving(true);
+    setError(null);
+    try {
+      setFeatures(await api.setAccessoryFeatures({ snmp_enabled: enabled }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save the SNMP setting');
+    } finally {
+      setFeaturesSaving(false);
+    }
+  };
 
   const handleManageLaunchAgent = async (action: 'install' | 'uninstall') => {
     setLaunchAgentActionLoading(true);
@@ -347,6 +369,41 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
                     </div>
                   )}
                 </div>
+
+                {/* Optional SNMP hardware check */}
+                {features && (
+                  <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
+                    <div className="flex items-start space-x-3">
+                      <Radar className="w-5 h-5 text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5" aria-hidden="true" />
+                      <div className="space-y-1">
+                        <label htmlFor={snmpToggleId} className="flex items-center gap-2 text-xs font-semibold text-slate-900 dark:text-white cursor-pointer">
+                          <input
+                            id={snmpToggleId}
+                            type="checkbox"
+                            checked={features.snmp_enabled}
+                            disabled={featuresSaving || !features.is_admin || (!features.snmp_available && !features.snmp_enabled)}
+                            onChange={(e) => handleToggleSnmp(e.target.checked)}
+                            className="rounded border-slate-300 dark:border-slate-600"
+                          />
+                          <span>SNMP hardware check (optional)</span>
+                          {featuresSaving && <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />}
+                        </label>
+                        <span className="text-xs text-slate-500 dark:text-slate-400 block">
+                          Adds <em>Check installed hardware (SNMP)</em> to the Hardware Accessories tab. You type the printer's address and this Mac asks it over SNMP (UDP 161) which trays, bins and finishers are installed. Only works on a network that can reach the printers themselves. Off by default; saved as soon as you change it.
+                        </span>
+                        {!features.is_admin && (
+                          <span className="text-xs text-amber-700 dark:text-amber-400 block">Only CUPS administrators can change this.</span>
+                        )}
+                        {!features.snmp_available && (
+                          <span className="text-xs text-amber-700 dark:text-amber-400 block">snmpwalk isn't installed on this Mac.</span>
+                        )}
+                        {features.error && (
+                          <span className="text-xs text-red-600 dark:text-red-400 block">{features.error}</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

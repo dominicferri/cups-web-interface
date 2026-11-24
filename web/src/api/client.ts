@@ -5,6 +5,8 @@ import type {
   PrinterOptionsResponse,
   AccessoryReport,
   AccessorySuggestions,
+  SNMPInventory,
+  AccessoryFeatureStatus,
   ArchAuditResult,
   FleetAuditSummary,
   AddPrinterParams,
@@ -265,6 +267,29 @@ export const api = {
       method: 'POST',
     });
     return handleResponse<AccessorySuggestions>(res);
+  },
+
+  async snmpCheckAccessories(name: string, host: string, community: string): Promise<SNMPInventory> {
+    const res = await apiFetch(`${API_BASE}/printers/${encodeURIComponent(name)}/accessories/snmp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ host, community }),
+    });
+    return handleResponse<SNMPInventory>(res);
+  },
+
+  async getAccessoryFeatures(): Promise<AccessoryFeatureStatus> {
+    const res = await apiFetch(`${API_BASE}/accessories/features`);
+    return handleResponse<AccessoryFeatureStatus>(res);
+  },
+
+  async setAccessoryFeatures(features: { snmp_enabled: boolean }): Promise<AccessoryFeatureStatus> {
+    const res = await apiFetch(`${API_BASE}/accessories/features`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(features),
+    });
+    return handleResponse<AccessoryFeatureStatus>(res);
   },
 
   async getPrinterAudit(name: string): Promise<ArchAuditResult> {

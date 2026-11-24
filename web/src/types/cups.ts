@@ -138,6 +138,10 @@ export interface AccessoryReport {
   ignored_notes?: number;
   // CUPS was changed but the notes couldn't be saved.
   warning?: string;
+  // An administrator turned on the SNMP hardware check (Server Settings).
+  snmp_enabled: boolean;
+  // The printer's host from a direct device URI, to prefill the SNMP form.
+  snmp_host_hint?: string;
 }
 
 export interface AccessorySuggestion {
@@ -152,6 +156,53 @@ export interface AccessorySuggestions {
   queried: boolean;
   note?: string;
   suggestions: AccessorySuggestion[];
+}
+
+export interface SNMPInput {
+  index: string;
+  type: string;
+  name?: string;
+  description?: string;
+  media?: string;
+  capacity?: number;
+}
+
+export interface SNMPOutput {
+  index: string;
+  type: string;
+  name?: string;
+  description?: string;
+  capacity?: number;
+}
+
+export interface SNMPFinisher {
+  index: string;
+  type: string;
+  description?: string;
+  present?: string;
+}
+
+// What the printer reports over SNMP about its installed hardware.
+export interface SNMPInventory {
+  printer_name: string;
+  host: string;
+  queried: boolean;
+  note?: string;
+  system_description?: string;
+  system_name?: string;
+  devices: string[];
+  inputs: SNMPInput[];
+  outputs: SNMPOutput[];
+  finishers: SNMPFinisher[];
+  duplex: string[];
+  suggestions: AccessorySuggestion[];
+}
+
+export interface AccessoryFeatureStatus {
+  snmp_enabled: boolean;
+  snmp_available: boolean;
+  is_admin: boolean;
+  error?: string;
 }
 
 export interface BinaryInfo {
