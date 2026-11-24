@@ -321,7 +321,7 @@ go test ./... -skip 'TestCLIAdapter(AddAndRemoveKyoceraPrinter|SetDefaultPrinter
 
 This repository is the PaperCut CUPS WebUI with a double-click installer added for macOS 27, which removed the built-in CUPS web interface. The Go backend is 13,845 lines and the React frontend is 6,689 lines.
 
-The two diagrams come from a code graph built on 2026-11-19, 15 commits before commit `323254c`. The Composition and History tables were measured at commit `323254c`.
+The two diagrams come from a code graph built on 2026-11-19, 15 commits before commit `8f33d92`. The Composition and History tables were measured at commit `8f33d92`.
 
 - The CUPS Adapter Layer is the base of the project. It holds 278 of the 481 nodes in the graph, and the HTTP API Layer has 142 links into it, which is three times the next largest arrow.
 - 'IsValidPrinterName' in 'internal/cups/validation.go' is called 34 times, more than twice the next function.
