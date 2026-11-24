@@ -46,6 +46,13 @@ Include the affected version or commit, steps to reproduce, and the impact you o
   * **Device URIs:** Whitelisted strictly to authorized network and hardware transport schemes (`ipp`, `ipps`, `http`, `https`, `socket`, `lpd`, `usb`, `smb`, `dnssd`, `mdns`). Arbitrary schemes like `file://` or `exec://` are prohibited; the one exception is the exact null device `file:/dev/null` (also accepted as `file:///dev/null`), used for virtual queues that discard jobs. A URI may carry the `papercut:` prefix that PaperCut print tracking adds to a queue; the address after the prefix must pass the same checks, so the prefix cannot be used to reach a blocked scheme or path. URIs must not start with a dash or contain control characters, percent-encoding must be well formed, and the value is passed to `lpadmin` unchanged as a single argument (never URL-decoded or interpreted by a shell).
   * **PPD Options:** Option keys and values are sanitized to disallow leading dashes and command separators.
 * **Execution Timeouts:** All external CLI processes run within a `context.WithTimeout` (maximum 10 seconds) to prevent hung child processes.
+* **SNMP hardware check (optional, off by default):** When a CUPS administrator turns it on in Server Settings, the Hardware Accessories tab can run `/usr/bin/snmpwalk` against a printer address the administrator types. This makes the Mac send SNMPv2c read requests (UDP 161) to that address, so:
+  * The setting is stored in `~/.cups-webui/features.json` (mode 0600) and checked by the server on every request. A missing or damaged file keeps the check off.
+  * Only CUPS administrators can turn it on or run it, and the request goes through the same session-token and same-origin checks as every other API call.
+  * The address must be an IP address or a DNS host name: no port, scheme, path, spaces or leading `-`. The community name must be 1 to 64 printable characters without spaces.
+  * The community name is written to a private `snmp.conf` in a new 0700 temporary folder (removed after the walk) and passed with `SNMPCONFPATH`, so it never appears on the command line or in the process list. It is not logged or returned in responses. SNMPv2c sends it in clear text on the network, as SNMPv2c always does.
+  * Only fixed Printer MIB, Finisher MIB and Host Resources subtrees are read. Each request times out after 2 seconds with one retry, the whole check stops after 12 seconds (under the server's 15-second response timeout), and at most 512 KB of output is kept.
+  * The answer is only shown and used to fill in the form. Nothing changes on the queue until the administrator saves.
 
 ---
 

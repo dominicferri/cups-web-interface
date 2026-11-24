@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-11-23
+
+### Optional SNMP hardware check
+
+- The Hardware Accessories tab can ask a printer over SNMP what hardware it has installed. A queue that points at a print server such as PaperCut can't see the printer, so its trays, finisher and duplex unit stay "not installed". When this Mac is on a network that reaches the printers (for example an IT network profile), an administrator can type the printer's address and see what it reports.
+- Off by default. A CUPS administrator turns it on under CUPS Settings > SNMP hardware check. The server checks the setting (`~/.cups-webui/features.json`) on every request; a missing or damaged file keeps it off.
+- The check runs `/usr/bin/snmpwalk` (SNMPv2c) on the Printer MIB input, output and media path tables, the Finisher MIB device table and the Host Resources device list, with numeric OIDs checked against RFC 3805 and RFC 3806. It lists paper sources with capacity, output bins, finishers, duplex and devices for any driver.
+- For drivers in the suggestion table ("Generic Universal Mono"), it also suggests values: drawers in index order map to the tray options, a manual feed to the bypass tray, stitcher, puncher and folder finishers to the stapler, hole punch and folder options, and a duplex media path to the duplexer. A finisher reported as not present or off suggests nothing. Suggestions only fill in the form.
+- The address must be an IP address or host name, with no port or scheme. The community goes in a private temporary `snmp.conf`, never on the command line or in the process list, and is not logged or returned.
+- The IPP suggestions and the SNMP check share one suggestion list. The IPP evidence text is unchanged.
+- New API: `POST /api/v1/printers/{name}/accessories/snmp`, `GET`/`PUT /api/v1/accessories/features`. The accessories report has `snmp_enabled` and `snmp_host_hint` (the host of a direct device address, used to prefill the form).
+
 ## 2026-11-20
 
 ### Server stops when the browser closes
