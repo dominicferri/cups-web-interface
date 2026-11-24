@@ -12,6 +12,16 @@
 - The IPP suggestions and the SNMP check share one suggestion list. The IPP evidence text is unchanged.
 - New API: `POST /api/v1/printers/{name}/accessories/snmp`, `GET`/`PUT /api/v1/accessories/features`. The accessories report has `snmp_enabled` and `snmp_host_hint` (the host of a direct device address, used to prefill the form).
 
+### Print server list (CSV import)
+
+- CUPS Settings can import a printer list exported from a Windows print server (`PrinterName`, `Model`, `Driver`, `PortName`, `IPAddress`). Queues that point at the print server then get their printer's own address in the SNMP form, with the model and driver from the list. The README describes the format and gives an export command.
+- A queue finds its printer by the name in its print server device address, or by the queue name macOS makes from it. A direct device address still wins.
+- An address comes from `IPAddress`, or from a `PortName` such as `IP_10.0.0.5` or `10.0.0.5_1` when `IPAddress` is `N/A`. UTF-8, UTF-8 with a byte order mark, UTF-16 and the PowerShell 5 `#TYPE` line are accepted.
+- Errors: a file that can't be used (empty, not text, invalid CSV with the line number, missing or repeated columns, no usable printers, over 2 MB or 5,000 rows) is refused with the reason, and the old list stays. Rows that can't be used are skipped and listed by line with the reason. The result says how many queues on this Mac found their printer.
+- Only the parsed list is saved (`~/.cups-webui/printer-inventory.json`, mode 0600); the CSV is not kept. **Remove list** forgets it.
+- New API: `GET`/`POST`/`DELETE /api/v1/accessories/inventory`. The accessories report has `snmp_host_source` and `print_server_entry`.
+- The settings files are written by one shared atomic-write helper.
+
 ## 2026-11-20
 
 ### Server stops when the browser closes

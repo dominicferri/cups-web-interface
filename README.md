@@ -183,6 +183,50 @@ The **Hardware Accessories** tab lists the queue's installable options, installe
 - **Check installed hardware (SNMP)** is optional and off by default. A CUPS administrator turns it on under **CUPS Settings > SNMP hardware check**; the setting is saved in `~/.cups-webui/features.json`. In Edit accessories, type the printer's own IP address or host name (not the print server's) and the SNMP community (default `public`). The app runs `snmpwalk` (SNMPv2c, UDP 161) and lists the paper sources, output bins, finishers, duplex unit and devices the printer reports. For drivers in the suggestion table it also offers values to fill in the form; for other drivers, use the list to set the accessories by hand. It works only on a network that can reach the printers themselves, such as an IT network profile. See [SECURITY.md](./SECURITY.md) for how the address and community are handled.
 - The section isn't shown for driverless (AirPrint / IPP Everywhere) queues or for drivers without installable options.
 
+### Print server list (CSV)
+
+When queues point at a Windows print server, the Mac doesn't know each printer's own address. Import the print server's printer list under **CUPS Settings > SNMP hardware check > Print server list (CSV)**, and the SNMP form fills in the address of each queue's printer. An administrator imports it; a new import replaces the old list, and **Remove list** forgets it.
+
+Export the list on the print server with PowerShell, for example:
+
+```powershell
+Get-Printer | ForEach-Object {
+    $port = Get-PrinterPort -Name $_.PortName -ErrorAction SilentlyContinue
+    [pscustomobject]@{
+        PrinterName = $_.Name
+        Model       = ''   # optional; fill it in if you have it
+        Driver      = $_.DriverName
+        PortName    = $_.PortName
+        IPAddress   = if ($port.PrinterHostAddress) { $port.PrinterHostAddress } else { 'N/A' }
+    }
+} | Export-Csv PrinterInventory.csv -NoTypeInformation -Encoding UTF8
+```
+
+The file format:
+
+| Column | Required | Use |
+|---|---|---|
+| `PrinterName` | Yes | The printer's name on the print server. |
+| `IPAddress` | `IPAddress` or `PortName` | The printer's IP address or host name. `N/A` or empty means "use `PortName`". |
+| `PortName` | `IPAddress` or `PortName` | The Windows port. An address is taken from `10.0.0.5`, `IP_10.0.0.5` or `10.0.0.5_1`. Local ports such as `TS001`, `PORTPROMPT:` and `nul` have no address. |
+| `Model` | No | Shown next to the address. `SNMP unavailable` is ignored. |
+| `Driver` | No | Shown next to the address. |
+
+Example (the addresses are documentation addresses):
+
+```csv
+"PrinterName","Model","Driver","PortName","IPAddress"
+"Front Desk (Main)","Example Laser 400","Example PCL6","192.0.2.10","192.0.2.10"
+"Library 2.01","SNMP unavailable","Example PS","IP_192.0.2.11","N/A"
+"Kiosk","","Example PCL6","TS001","N/A"
+```
+
+- Column names are matched without regard to case or order; other columns are ignored. The file can be UTF-8 (with or without a byte order mark) or UTF-16 with a byte order mark, and may start with the `#TYPE` line that Windows PowerShell 5 writes without `-NoTypeInformation`. The limit is 2 MB and 5,000 printers.
+- A queue finds its printer by the printer name in its device address (`ipps://server:9164/printers/Front%20Desk%20%28Main%29`), or else by the queue name macOS makes from that name (`Front_Desk__Main_`). A queue with a direct device address keeps that address.
+- Rows that can't be used are skipped and listed with their line number and the reason: no address, an `IPAddress` that isn't an address, a wrong number of fields, or a name already used on an earlier line (the first one is kept). The result also says how many queues on this Mac found their printer.
+- The import is refused, and the old list is kept, when the file is empty, isn't text, isn't valid CSV (the message names the line), has no `PrinterName` column or no `IPAddress`/`PortName` column, has a column twice, has no printers, or has no printer with a usable address.
+- Only the parsed list is kept, in `~/.cups-webui/printer-inventory.json` (readable only by your account). The CSV file itself is not stored. The list maps your printers to internal addresses: keep the export out of repositories and shared folders.
+
 ---
 
 ## What differs from upstream

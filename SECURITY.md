@@ -53,6 +53,7 @@ Include the affected version or commit, steps to reproduce, and the impact you o
   * The community name is written to a private `snmp.conf` in a new 0700 temporary folder (removed after the walk) and passed with `SNMPCONFPATH`, so it never appears on the command line or in the process list. It is not logged or returned in responses. SNMPv2c sends it in clear text on the network, as SNMPv2c always does.
   * Only fixed Printer MIB, Finisher MIB and Host Resources subtrees are read. Each request times out after 2 seconds with one retry, the whole check stops after 12 seconds (under the server's 15-second response timeout), and at most 512 KB of output is kept.
   * The answer is only shown and used to fill in the form. Nothing changes on the queue until the administrator saves.
+* **Print server list (CSV import):** Only CUPS administrators can import or remove it, through the same session-token and same-origin checks. The upload is limited to 2 MB and 5,000 rows and is parsed with Go's `encoding/csv`; it is never run or passed to a command. Fields are trimmed, control characters are replaced and values are cut to 256 characters. An address is used only if it is an IP address or a DNS host name (the same check as the SNMP form). Only the parsed rows are saved, in `~/.cups-webui/printer-inventory.json` (mode 0600, written atomically); the uploaded file is not kept. A damaged list file gives no addresses and asks for a new import.
 
 ---
 

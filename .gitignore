@@ -14,6 +14,9 @@ web/node_modules/
 temp_screen_shot*
 temp_*
 
+# Printer lists exported from print servers (internal addresses)
+*.csv
+
 # Internal docs (not published)
 [Ss]ecurity_architecture.md
 spec.md
