@@ -16,7 +16,7 @@ func writeAccessoryError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.As(err, &historyErr):
 		writeError(w, http.StatusConflict, err.Error())
-	case errors.Is(err, cups.ErrNotCUPSAdmin):
+	case errors.Is(err, cups.ErrNotCUPSAdmin), errors.Is(err, cups.ErrSNMPDisabled):
 		writeError(w, http.StatusForbidden, err.Error())
 	case errors.Is(err, cups.ErrAccessoriesUnavailable):
 		writeError(w, http.StatusConflict, err.Error())
@@ -95,6 +95,55 @@ func (s *Server) handleSuggestAccessories(w http.ResponseWriter, r *http.Request
 		return
 	}
 	res, err := s.adapter.SuggestAccessories(name)
+	if err != nil {
+		writeAccessoryError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+// handleSNMPCheckAccessories walks the printer at the given address over SNMP
+// and returns its installed hardware. It is off unless an administrator turned it on.
+func (s *Server) handleSNMPCheckAccessories(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if !cups.IsValidPrinterName(name) {
+		writeError(w, http.StatusBadRequest, "invalid printer name")
+		return
+	}
+	var req struct {
+		Host      string `json:"host"`
+		Community string `json:"community"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	res, err := s.adapter.SNMPCheckAccessories(name, req.Host, req.Community)
+	if err != nil {
+		writeAccessoryError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+// handleGetAccessoryFeatures returns the optional accessory features.
+func (s *Server) handleGetAccessoryFeatures(w http.ResponseWriter, r *http.Request) {
+	res, err := s.adapter.GetAccessoryFeatures()
+	if err != nil {
+		writeAccessoryError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+// handleSetAccessoryFeatures turns optional accessory features on or off.
+func (s *Server) handleSetAccessoryFeatures(w http.ResponseWriter, r *http.Request) {
+	var req cups.AccessoryFeatures
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	res, err := s.adapter.SetAccessoryFeatures(req)
 	if err != nil {
 		writeAccessoryError(w, err)
 		return

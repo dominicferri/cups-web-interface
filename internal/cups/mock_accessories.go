@@ -97,6 +97,39 @@ func (s *mockAccessorySource) PrinterAttributes(uri string) (string, error) {
 	return "", fmt.Errorf("mock mode does not query printers")
 }
 
+// mockSNMPWalk is sample snmpwalk -On output for mock mode: two drawers, a
+// bypass tray, a finisher with a stapler and a hole punch, and duplex.
+const mockSNMPWalk = `.1.3.6.1.2.1.1.1.0 = STRING: "Mock printer (sample SNMP data)"
+.1.3.6.1.2.1.1.5.0 = STRING: "mock-printer"
+.1.3.6.1.2.1.25.3.2.1.3.1 = STRING: "Mock Laser 5000"
+.1.3.6.1.2.1.25.3.2.1.3.2 = STRING: "Office Finisher"
+.1.3.6.1.2.1.43.8.2.1.2.1.1 = INTEGER: 3
+.1.3.6.1.2.1.43.8.2.1.2.1.2 = INTEGER: 3
+.1.3.6.1.2.1.43.8.2.1.2.1.3 = INTEGER: 5
+.1.3.6.1.2.1.43.8.2.1.9.1.1 = INTEGER: 520
+.1.3.6.1.2.1.43.8.2.1.9.1.2 = INTEGER: 520
+.1.3.6.1.2.1.43.8.2.1.9.1.3 = INTEGER: 100
+.1.3.6.1.2.1.43.8.2.1.13.1.1 = STRING: "Tray 1"
+.1.3.6.1.2.1.43.8.2.1.13.1.2 = STRING: "Tray 2"
+.1.3.6.1.2.1.43.8.2.1.13.1.3 = STRING: "Bypass Tray"
+.1.3.6.1.2.1.43.9.2.1.2.1.1 = INTEGER: 4
+.1.3.6.1.2.1.43.9.2.1.4.1.1 = INTEGER: 250
+.1.3.6.1.2.1.43.9.2.1.7.1.1 = STRING: "Center Tray"
+.1.3.6.1.2.1.43.13.4.1.9.1.1 = INTEGER: 3
+.1.3.6.1.2.1.43.30.1.1.2.2.1 = INTEGER: 3
+.1.3.6.1.2.1.43.30.1.1.3.2.1 = INTEGER: 3
+.1.3.6.1.2.1.43.30.1.1.10.2.1 = STRING: "Stapler"
+.1.3.6.1.2.1.43.30.1.1.2.2.2 = INTEGER: 8
+.1.3.6.1.2.1.43.30.1.1.3.2.2 = INTEGER: 3
+.1.3.6.1.2.1.43.30.1.1.10.2.2 = STRING: "2/3 Hole Punch"
+`
+
+func (s *mockAccessorySource) SNMPWalk(host, community string, roots []string) (string, error) {
+	return mockSNMPWalk, nil
+}
+
+func (s *mockAccessorySource) SNMPAvailable() bool { return true }
+
 func (s *mockAccessorySource) QueueUUID(name string) (string, error) {
 	return "urn:uuid:mock-" + strings.ToLower(name), nil
 }
@@ -137,4 +170,16 @@ func (m *MockAdapter) ResetAccessories(name string) (*AccessoryReport, error) {
 
 func (m *MockAdapter) SuggestAccessories(name string) (*AccessorySuggestions, error) {
 	return m.accessories().Suggest(name)
+}
+
+func (m *MockAdapter) SNMPCheckAccessories(name, host, community string) (*SNMPInventory, error) {
+	return m.accessories().SNMPCheck(name, host, community)
+}
+
+func (m *MockAdapter) GetAccessoryFeatures() (*AccessoryFeatureStatus, error) {
+	return m.accessories().SNMPFeatures(), nil
+}
+
+func (m *MockAdapter) SetAccessoryFeatures(f AccessoryFeatures) (*AccessoryFeatureStatus, error) {
+	return m.accessories().SetSNMPFeatures(f)
 }

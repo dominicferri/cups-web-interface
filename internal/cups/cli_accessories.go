@@ -287,6 +287,8 @@ func (a *CLIAdapter) accessories() *AccessoryManager {
 		if a.Accessories == nil {
 			path, _ := DefaultOverrideStorePath() // "" makes the store refuse changes with a clear error
 			a.Accessories = NewAccessoryManager(&cliAccessorySource{a: a}, NewOverrideStore(path))
+			fpath, _ := DefaultFeatureStorePath() // "" keeps every optional feature off
+			a.Accessories.Features = NewFeatureStore(fpath)
 		}
 	})
 	return a.Accessories

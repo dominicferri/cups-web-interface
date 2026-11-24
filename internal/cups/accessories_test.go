@@ -215,6 +215,10 @@ type fakeSource struct {
 	uuids      map[string]string
 	queues     []string // nil: every queue in queuePPD
 	afterApply func()
+	snmpOut    string
+	snmpErr    error
+	snmpCalls  int
+	noSNMP     bool
 }
 
 func newFakeSource() *fakeSource {
@@ -263,6 +267,11 @@ func (f *fakeSource) ApplyOptions(name string, opts map[string]string) error {
 func (f *fakeSource) PrinterAttributes(uri string) (string, error) { return f.attrs, f.attrsErr }
 func (f *fakeSource) IsAdmin() bool                                { return f.admin }
 func (f *fakeSource) UserName() string                             { return "alice" }
+func (f *fakeSource) SNMPWalk(host, community string, roots []string) (string, error) {
+	f.snmpCalls++
+	return f.snmpOut, f.snmpErr
+}
+func (f *fakeSource) SNMPAvailable() bool { return !f.noSNMP }
 func (f *fakeSource) QueueUUID(name string) (string, error) {
 	if u, ok := f.uuids[name]; ok {
 		return u, nil

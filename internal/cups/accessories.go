@@ -80,6 +80,10 @@ type AccessoryReport struct {
 	IgnoredNotes int `json:"ignored_notes,omitempty"`
 	// Warning is set when CUPS was changed but the notes couldn't be saved.
 	Warning string `json:"warning,omitempty"`
+	// SNMPEnabled is true when an administrator turned on the SNMP hardware check.
+	SNMPEnabled bool `json:"snmp_enabled"`
+	// SNMPHostHint is the printer's host from a direct device URI, to prefill the SNMP form.
+	SNMPHostHint string `json:"snmp_host_hint,omitempty"`
 }
 
 // AccessorySuggestion is a value the printer's IPP attributes suggest. It is never applied automatically.
@@ -111,6 +115,11 @@ type AccessorySource interface {
 	ApplyOptions(name string, options map[string]string) error
 	// PrinterAttributes returns `ipptool -tv` Get-Printer-Attributes output.
 	PrinterAttributes(uri string) (string, error)
+	// SNMPWalk returns `snmpwalk -On` output for each root OID. It returns an
+	// error only when the host answered none of them.
+	SNMPWalk(host, community string, roots []string) (string, error)
+	// SNMPAvailable reports whether SNMPWalk can run on this computer.
+	SNMPAvailable() bool
 	IsAdmin() bool
 	UserName() string
 	// QueueUUID returns CUPS's printer-uuid for the queue ("" if unknown).
@@ -127,9 +136,10 @@ func (e *AccessoryHistoryError) Unwrap() error { return e.Err }
 
 // AccessoryManager implements the manual accessory feature on top of an AccessorySource.
 type AccessoryManager struct {
-	Source AccessorySource
-	Store  *OverrideStore
-	Now    func() time.Time
+	Source   AccessorySource
+	Store    *OverrideStore
+	Features *FeatureStore
+	Now      func() time.Time
 
 	mu sync.Mutex // serialises changes so read-apply-verify-record is atomic
 }
@@ -139,7 +149,7 @@ func NewAccessoryManager(src AccessorySource, store *OverrideStore) *AccessoryMa
 	if store == nil {
 		store = NewMemoryOverrideStore()
 	}
-	return &AccessoryManager{Source: src, Store: store, Now: time.Now}
+	return &AccessoryManager{Source: src, Store: store, Features: NewMemoryFeatureStore(), Now: time.Now}
 }
 
 // Report returns the queue's installable options with their sources.
@@ -155,8 +165,17 @@ func (m *AccessoryManager) Report(name string) (*AccessoryReport, error) {
 	if uri, err := m.Source.DeviceURI(name); err == nil {
 		rep.DeviceURI = uri
 		rep.DirectConnection, rep.ConnectionNote = ClassifyDeviceURI(uri)
+		if rep.DirectConnection {
+			// usb:// "hosts" are make names, not network addresses.
+			if u, perr := url.Parse(uri); perr == nil && !strings.EqualFold(u.Scheme, "usb") && IsValidSNMPHost(u.Hostname()) {
+				rep.SNMPHostHint = u.Hostname()
+			}
+		}
 	} else {
 		return nil, err
+	}
+	if f, ferr := m.Features.Load(); ferr == nil {
+		rep.SNMPEnabled = f.SNMPEnabled
 	}
 
 	data, err := m.Source.QueuePPD(name)
@@ -602,10 +621,25 @@ func ParseIPPToolAttributes(out string) map[string][]string {
 	return attrs
 }
 
-// printerCapabilities is what the IPP attributes say the device has.
+// printerCapabilities is what the device says it has, over IPP or SNMP.
 type printerCapabilities struct {
 	staple, punch, fold, duplex, bypass, envelope []string // evidence values
 	trays                                         map[int]string
+	// viaSNMP means the values came from an SNMP walk: they describe
+	// themselves, so the evidence doesn't name an IPP attribute.
+	viaSNMP bool
+}
+
+// evidence describes vals as the reason for a suggestion. attr is the IPP
+// attribute the values came from.
+func (c printerCapabilities) evidence(attr string, vals []string) (string, bool) {
+	if len(vals) == 0 {
+		return "", false
+	}
+	if c.viaSNMP {
+		return "SNMP: " + strings.Join(vals, ", "), true
+	}
+	return attr + " includes " + strings.Join(vals, ", "), true
 }
 
 func inRange(n, lo, hi int) bool { return n >= lo && n <= hi }
@@ -656,17 +690,10 @@ type accessoryRule struct {
 	match  func(c printerCapabilities) (evidence string, ok bool)
 }
 
-func evidenceFrom(attr string, vals []string) (string, bool) {
-	if len(vals) == 0 {
-		return "", false
-	}
-	return attr + " includes " + strings.Join(vals, ", "), true
-}
-
 func trayRule(n int) accessoryRule {
 	return accessoryRule{option: fmt.Sprintf("OptTray%d", n), value: "True", match: func(c printerCapabilities) (string, bool) {
 		if v, ok := c.trays[n]; ok {
-			return "media-source-supported includes " + v, true
+			return c.evidence("media-source-supported", []string{v})
 		}
 		return "", false
 	}}
@@ -676,23 +703,23 @@ func trayRule(n int) accessoryRule {
 // (FUJIFILM ApeosPort driver 2.0.0). Verified against Generic Universal Mono.
 var genericUniversalRules = []accessoryRule{
 	{option: "OptStapler", value: "True", match: func(c printerCapabilities) (string, bool) {
-		return evidenceFrom("finishings-supported", c.staple)
+		return c.evidence("finishings-supported", c.staple)
 	}},
 	{option: "OptHolePunch", value: "True", match: func(c printerCapabilities) (string, bool) {
-		return evidenceFrom("finishings-supported", c.punch)
+		return c.evidence("finishings-supported", c.punch)
 	}},
 	{option: "OptFold", value: "True", match: func(c printerCapabilities) (string, bool) {
-		return evidenceFrom("finishings-supported", c.fold)
+		return c.evidence("finishings-supported", c.fold)
 	}},
 	{option: "OptDuplex", value: "True", match: func(c printerCapabilities) (string, bool) {
-		return evidenceFrom("sides-supported", c.duplex)
+		return c.evidence("sides-supported", c.duplex)
 	}},
 	trayRule(2), trayRule(3), trayRule(4), trayRule(5),
 	{option: "OptMultipurposeFeeder", value: "True", match: func(c printerCapabilities) (string, bool) {
-		return evidenceFrom("media-source-supported", c.bypass)
+		return c.evidence("media-source-supported", c.bypass)
 	}},
 	{option: "OptEnvFeeder", value: "True", match: func(c printerCapabilities) (string, bool) {
-		return evidenceFrom("media-source-supported", c.envelope)
+		return c.evidence("media-source-supported", c.envelope)
 	}},
 }
 
@@ -705,8 +732,12 @@ var accessorySuggestionRules = map[string][]accessoryRule{
 // SuggestFromIPP matches IPP attributes against a driver's rules. It only
 // suggests values that differ from the queue's current value.
 func SuggestFromIPP(rep *AccessoryReport, attrs map[string][]string) []AccessorySuggestion {
+	return suggestFromCaps(rep, capabilitiesFromIPP(attrs))
+}
+
+// suggestFromCaps runs the driver's rules against what the device reported.
+func suggestFromCaps(rep *AccessoryReport, caps printerCapabilities) []AccessorySuggestion {
 	rules := accessorySuggestionRules[rep.DriverModel]
-	caps := capabilitiesFromIPP(attrs)
 	out := []AccessorySuggestion{}
 	for _, r := range rules {
 		opt := rep.option(r.option)

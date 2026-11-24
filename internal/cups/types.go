@@ -237,4 +237,7 @@ type Adapter interface {
 	SetAccessories(name string, values map[string]string, acknowledged bool) (*AccessoryReport, error)
 	ResetAccessories(name string) (*AccessoryReport, error)
 	SuggestAccessories(name string) (*AccessorySuggestions, error)
+	SNMPCheckAccessories(name, host, community string) (*SNMPInventory, error)
+	GetAccessoryFeatures() (*AccessoryFeatureStatus, error)
+	SetAccessoryFeatures(f AccessoryFeatures) (*AccessoryFeatureStatus, error)
 }

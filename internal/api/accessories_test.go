@@ -95,6 +95,8 @@ func TestAccessoryEndpointsRequireToken(t *testing.T) {
 		{"PUT", "/api/v1/printers/Finance_Secure_Copier/accessories", `{"values":{"HDD":"False"},"acknowledged_warning":true}`},
 		{"POST", "/api/v1/printers/Finance_Secure_Copier/accessories/reset", ""},
 		{"POST", "/api/v1/printers/Finance_Secure_Copier/accessories/suggestions", ""},
+		{"POST", "/api/v1/printers/Finance_Secure_Copier/accessories/snmp", `{"host":"10.1.2.3","community":"public"}`},
+		{"PUT", "/api/v1/accessories/features", `{"snmp_enabled":true}`},
 	} {
 		req := httptest.NewRequest(c.method, c.path, strings.NewReader(c.body))
 		req.Host = "127.0.0.1:6310"
@@ -111,5 +113,58 @@ func TestAccessoryEndpointsRequireToken(t *testing.T) {
 		if w.Code != http.StatusForbidden {
 			t.Errorf("%s %s cross-origin: %d", c.method, c.path, w.Code)
 		}
+	}
+}
+
+func TestSNMPCheckEndpoint(t *testing.T) {
+	srv, _ := setupTestServer()
+	do := func(method, path, body string) *httptest.ResponseRecorder {
+		req := newTestReq(srv, method, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(w, req)
+		return w
+	}
+	const snmp = "/api/v1/printers/Finance_Secure_Copier/accessories/snmp"
+	const ok = `{"host":"10.1.2.3","community":"public"}`
+
+	// Off by default.
+	if w := do("POST", snmp, ok); w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "turned off") {
+		t.Fatalf("disabled: %d %s", w.Code, w.Body.String())
+	}
+	w := do("GET", "/api/v1/accessories/features", "")
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"snmp_enabled":false`) {
+		t.Fatalf("features: %d %s", w.Code, w.Body.String())
+	}
+	if w := do("PUT", "/api/v1/accessories/features", `{"snmp_enabled":true}`); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"snmp_enabled":true`) {
+		t.Fatalf("enable: %d %s", w.Code, w.Body.String())
+	}
+	if w := do("PUT", "/api/v1/accessories/features", `nope`); w.Code != http.StatusBadRequest {
+		t.Errorf("bad features body: %d", w.Code)
+	}
+
+	if w := do("POST", snmp, `{"host":"-c","community":"public"}`); w.Code != http.StatusBadRequest {
+		t.Errorf("bad host: %d %s", w.Code, w.Body.String())
+	}
+	if w := do("POST", snmp, `{"host":"10.1.2.3:161","community":"public"}`); w.Code != http.StatusBadRequest {
+		t.Errorf("host with port: %d", w.Code)
+	}
+	if w := do("POST", snmp, `not json`); w.Code != http.StatusBadRequest {
+		t.Errorf("bad body: %d", w.Code)
+	}
+
+	w = do("POST", snmp, ok)
+	if w.Code != http.StatusOK {
+		t.Fatalf("check: %d %s", w.Code, w.Body.String())
+	}
+	var inv cups.SNMPInventory
+	if err := json.Unmarshal(w.Body.Bytes(), &inv); err != nil || !inv.Queried || len(inv.Inputs) == 0 || len(inv.Finishers) == 0 {
+		t.Errorf("inventory: %+v %v", inv, err)
+	}
+	if strings.Contains(w.Body.String(), "public") {
+		t.Error("the response must not echo the community name")
+	}
+	if w := do("GET", "/api/v1/printers/Finance_Secure_Copier/accessories", ""); !strings.Contains(w.Body.String(), `"snmp_enabled":true`) {
+		t.Errorf("report: %s", w.Body.String())
 	}
 }
