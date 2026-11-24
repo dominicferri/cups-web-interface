@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="320" viewBox="0 0 1280 320" role="img" aria-labelledby="banner-title banner-desc">
+  <title id="banner-title">CUPS webui</title>
+  <desc id="banner-desc">The printing web page that macOS 27 removed, back as one local app.</desc>
+  <rect width="1280" height="320" fill="#000000"/>
+  <rect x="0" y="0" width="14" height="320" fill="#C00027"/>
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+    <text x="96" y="170" fill="#F4BD47" font-size="104" font-weight="700" letter-spacing="-2">CUPS webui</text>
+    <text x="100" y="228" fill="#FFFFFF" font-size="30">The CUPS web page macOS 27 removed, as one local app</text>
+  </g>
+  <g transform="translate(1000 96)">
+    <rect x="24" y="0" width="136" height="34" rx="6" fill="#FFFFFF" fill-opacity="0.45"/>
+    <rect x="0" y="40" width="184" height="58" rx="10" fill="#F4BD47"/>
+    <rect x="148" y="56" width="16" height="10" rx="3" fill="#C00027"/>
+    <rect x="24" y="104" width="136" height="36" rx="4" fill="#FFFFFF" fill-opacity="0.25"/>
+    <rect x="40" y="116" width="88" height="6" rx="3" fill="#FFFFFF" fill-opacity="0.45"/>
+  </g>
+</svg>
