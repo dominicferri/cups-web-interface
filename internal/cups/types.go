@@ -240,4 +240,7 @@ type Adapter interface {
 	SNMPCheckAccessories(name, host, community string) (*SNMPInventory, error)
 	GetAccessoryFeatures() (*AccessoryFeatureStatus, error)
 	SetAccessoryFeatures(f AccessoryFeatures) (*AccessoryFeatureStatus, error)
+	GetPrinterInventory() (*InventoryStatus, error)
+	ImportPrinterInventory(sourceName string, data []byte) (*InventoryImportResult, error)
+	RemovePrinterInventory() (*InventoryStatus, error)
 }

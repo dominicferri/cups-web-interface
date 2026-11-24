@@ -130,6 +130,27 @@ func (s *cliAccessorySource) DeviceURI(name string) (string, error) {
 	return "", fmt.Errorf("printer %q not found", name)
 }
 
+// DeviceURIs lists every queue's device URI from `lpstat -v`.
+func (s *cliAccessorySource) DeviceURIs() (map[string]string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), s.a.timeout)
+	defer cancel()
+	out, err := s.a.runCommand(ctx, "lpstat", "-v")
+	if err != nil {
+		return nil, err
+	}
+	uris := map[string]string{}
+	for _, line := range strings.Split(out, "\n") {
+		rest, ok := strings.CutPrefix(line, "device for ")
+		if !ok {
+			continue
+		}
+		if name, uri, ok := strings.Cut(rest, ": "); ok {
+			uris[name] = strings.TrimSpace(uri)
+		}
+	}
+	return uris, nil
+}
+
 // ApplyOptions runs `lpadmin -p <name> -o k=v ...`, which updates the
 // *Default lines in the queue's own PPD (/etc/cups/ppd/<name>.ppd). The
 // shared driver PPD is never touched. User-level lpoptions are not written:
@@ -289,6 +310,8 @@ func (a *CLIAdapter) accessories() *AccessoryManager {
 			a.Accessories = NewAccessoryManager(&cliAccessorySource{a: a}, NewOverrideStore(path))
 			fpath, _ := DefaultFeatureStorePath() // "" keeps every optional feature off
 			a.Accessories.Features = NewFeatureStore(fpath)
+			ipath, _ := DefaultInventoryStorePath() // "" reports an error instead of a list
+			a.Accessories.Inventory = NewInventoryStore(ipath)
 		}
 	})
 	return a.Accessories

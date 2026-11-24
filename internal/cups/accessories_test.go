@@ -272,6 +272,13 @@ func (f *fakeSource) SNMPWalk(host, community string, roots []string) (string, e
 	return f.snmpOut, f.snmpErr
 }
 func (f *fakeSource) SNMPAvailable() bool { return !f.noSNMP }
+func (f *fakeSource) DeviceURIs() (map[string]string, error) {
+	uris := map[string]string{}
+	for n := range f.queuePPD {
+		uris[n] = f.uri
+	}
+	return uris, nil
+}
 func (f *fakeSource) QueueUUID(name string) (string, error) {
 	if u, ok := f.uuids[name]; ok {
 		return u, nil

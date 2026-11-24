@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 
 	"github.com/PaperCutSoftware/cups-web-interface/internal/cups"
@@ -11,6 +12,7 @@ import (
 // writeAccessoryError maps accessory errors to HTTP status codes.
 func writeAccessoryError(w http.ResponseWriter, err error) {
 	var inputErr *cups.AccessoryInputError
+	var formatErr *cups.InventoryFormatError
 	var verifyErr *cups.AccessoryVerifyError
 	var historyErr *cups.AccessoryHistoryError
 	switch {
@@ -20,7 +22,7 @@ func writeAccessoryError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusForbidden, err.Error())
 	case errors.Is(err, cups.ErrAccessoriesUnavailable):
 		writeError(w, http.StatusConflict, err.Error())
-	case errors.As(err, &inputErr):
+	case errors.As(err, &inputErr), errors.As(err, &formatErr):
 		writeError(w, http.StatusBadRequest, err.Error())
 	case errors.As(err, &verifyErr):
 		writeError(w, http.StatusBadGateway, err.Error())
@@ -144,6 +146,60 @@ func (s *Server) handleSetAccessoryFeatures(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	res, err := s.adapter.SetAccessoryFeatures(req)
+	if err != nil {
+		writeAccessoryError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+// handleGetPrinterInventory reports the imported print server list.
+func (s *Server) handleGetPrinterInventory(w http.ResponseWriter, r *http.Request) {
+	res, err := s.adapter.GetPrinterInventory()
+	if err != nil {
+		writeAccessoryError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+// handleImportPrinterInventory replaces the print server list with an
+// uploaded CSV (multipart field "csv"). Only the parsed rows are stored.
+func (s *Server) handleImportPrinterInventory(w http.ResponseWriter, r *http.Request) {
+	const maxUpload = 2<<20 + 64<<10 // the CSV limit plus multipart overhead
+	r.Body = http.MaxBytesReader(w, r.Body, maxUpload)
+	if err := r.ParseMultipartForm(maxUpload); err != nil {
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			writeError(w, http.StatusRequestEntityTooLarge, "the file is larger than 2 MB")
+			return
+		}
+		writeError(w, http.StatusBadRequest, "send the CSV as a multipart form with the field \"csv\"")
+		return
+	}
+	defer r.MultipartForm.RemoveAll()
+	file, hdr, err := r.FormFile("csv")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "missing \"csv\" file in the form")
+		return
+	}
+	defer file.Close()
+	data, err := io.ReadAll(file)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "cannot read the uploaded file")
+		return
+	}
+	res, err := s.adapter.ImportPrinterInventory(hdr.Filename, data)
+	if err != nil {
+		writeAccessoryError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+// handleRemovePrinterInventory forgets the print server list.
+func (s *Server) handleRemovePrinterInventory(w http.ResponseWriter, r *http.Request) {
+	res, err := s.adapter.RemovePrinterInventory()
 	if err != nil {
 		writeAccessoryError(w, err)
 		return

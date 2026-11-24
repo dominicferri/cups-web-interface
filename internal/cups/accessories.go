@@ -82,9 +82,19 @@ type AccessoryReport struct {
 	Warning string `json:"warning,omitempty"`
 	// SNMPEnabled is true when an administrator turned on the SNMP hardware check.
 	SNMPEnabled bool `json:"snmp_enabled"`
-	// SNMPHostHint is the printer's host from a direct device URI, to prefill the SNMP form.
-	SNMPHostHint string `json:"snmp_host_hint,omitempty"`
+	// SNMPHostHint is the printer's address to prefill the SNMP form: the host
+	// of a direct device URI, or the address in the imported print server list.
+	SNMPHostHint   string `json:"snmp_host_hint,omitempty"`
+	SNMPHostSource string `json:"snmp_host_source,omitempty"`
+	// PrintServerEntry is this queue's row in the imported print server list.
+	PrintServerEntry *InventoryEntry `json:"print_server_entry,omitempty"`
 }
+
+// Where SNMPHostHint came from.
+const (
+	SNMPHostFromDeviceURI       = "device_uri"
+	SNMPHostFromPrintServerList = "print_server_list"
+)
 
 // AccessorySuggestion is a value the printer's IPP attributes suggest. It is never applied automatically.
 type AccessorySuggestion struct {
@@ -111,6 +121,8 @@ type AccessorySource interface {
 	// driver name it came from. It returns nil data if the driver is unknown.
 	DriverPPD(nickName string) (driverName string, data []byte, err error)
 	DeviceURI(name string) (string, error)
+	// DeviceURIs returns every queue's device URI (lpstat -v).
+	DeviceURIs() (map[string]string, error)
 	// ApplyOptions sets PPD defaults the way `lpadmin -p <name> -o k=v` does.
 	ApplyOptions(name string, options map[string]string) error
 	// PrinterAttributes returns `ipptool -tv` Get-Printer-Attributes output.
@@ -136,10 +148,11 @@ func (e *AccessoryHistoryError) Unwrap() error { return e.Err }
 
 // AccessoryManager implements the manual accessory feature on top of an AccessorySource.
 type AccessoryManager struct {
-	Source   AccessorySource
-	Store    *OverrideStore
-	Features *FeatureStore
-	Now      func() time.Time
+	Source    AccessorySource
+	Store     *OverrideStore
+	Features  *FeatureStore
+	Inventory *InventoryStore
+	Now       func() time.Time
 
 	mu sync.Mutex // serialises changes so read-apply-verify-record is atomic
 }
@@ -149,7 +162,7 @@ func NewAccessoryManager(src AccessorySource, store *OverrideStore) *AccessoryMa
 	if store == nil {
 		store = NewMemoryOverrideStore()
 	}
-	return &AccessoryManager{Source: src, Store: store, Features: NewMemoryFeatureStore(), Now: time.Now}
+	return &AccessoryManager{Source: src, Store: store, Features: NewMemoryFeatureStore(), Inventory: NewMemoryInventoryStore(), Now: time.Now}
 }
 
 // Report returns the queue's installable options with their sources.
@@ -169,6 +182,7 @@ func (m *AccessoryManager) Report(name string) (*AccessoryReport, error) {
 			// usb:// "hosts" are make names, not network addresses.
 			if u, perr := url.Parse(uri); perr == nil && !strings.EqualFold(u.Scheme, "usb") && IsValidSNMPHost(u.Hostname()) {
 				rep.SNMPHostHint = u.Hostname()
+				rep.SNMPHostSource = SNMPHostFromDeviceURI
 			}
 		}
 	} else {
@@ -176,6 +190,13 @@ func (m *AccessoryManager) Report(name string) (*AccessoryReport, error) {
 	}
 	if f, ferr := m.Features.Load(); ferr == nil {
 		rep.SNMPEnabled = f.SNMPEnabled
+	}
+	if rep.SNMPEnabled && rep.SNMPHostHint == "" {
+		if e := m.Inventory.Lookup(name, rep.DeviceURI); e != nil {
+			rep.SNMPHostHint = e.Address
+			rep.SNMPHostSource = SNMPHostFromPrintServerList
+			rep.PrintServerEntry = e
+		}
 	}
 
 	data, err := m.Source.QueuePPD(name)

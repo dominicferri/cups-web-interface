@@ -1,7 +1,9 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -97,6 +99,8 @@ func TestAccessoryEndpointsRequireToken(t *testing.T) {
 		{"POST", "/api/v1/printers/Finance_Secure_Copier/accessories/suggestions", ""},
 		{"POST", "/api/v1/printers/Finance_Secure_Copier/accessories/snmp", `{"host":"10.1.2.3","community":"public"}`},
 		{"PUT", "/api/v1/accessories/features", `{"snmp_enabled":true}`},
+		{"POST", "/api/v1/accessories/inventory", ""},
+		{"DELETE", "/api/v1/accessories/inventory", ""},
 	} {
 		req := httptest.NewRequest(c.method, c.path, strings.NewReader(c.body))
 		req.Host = "127.0.0.1:6310"
@@ -166,5 +170,73 @@ func TestSNMPCheckEndpoint(t *testing.T) {
 	}
 	if w := do("GET", "/api/v1/printers/Finance_Secure_Copier/accessories", ""); !strings.Contains(w.Body.String(), `"snmp_enabled":true`) {
 		t.Errorf("report: %s", w.Body.String())
+	}
+}
+
+func TestPrinterInventoryEndpoints(t *testing.T) {
+	srv, _ := setupTestServer()
+	upload := func(field, name, body string) *httptest.ResponseRecorder {
+		var buf bytes.Buffer
+		mw := multipart.NewWriter(&buf)
+		fw, _ := mw.CreateFormFile(field, name)
+		_, _ = fw.Write([]byte(body))
+		_ = mw.Close()
+		req := newTestReq(srv, "POST", "/api/v1/accessories/inventory", &buf)
+		req.Header.Set("Content-Type", mw.FormDataContentType())
+		w := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(w, req)
+		return w
+	}
+	do := func(method, path string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(w, newTestReq(srv, method, path, nil))
+		return w
+	}
+	csv := "\"PrinterName\",\"Model\",\"Driver\",\"PortName\",\"IPAddress\"\n" +
+		"\"Finance Secure Copier\",\"Example\",\"Example PS\",\"192.0.2.20\",\"192.0.2.20\"\n" +
+		"\"Kiosk\",\"\",\"\",\"TS001\",\"N/A\"\n"
+
+	if w := do("GET", "/api/v1/accessories/inventory"); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"loaded":false`) {
+		t.Fatalf("empty: %d %s", w.Code, w.Body.String())
+	}
+	w := upload("csv", "list.csv", csv)
+	if w.Code != http.StatusOK {
+		t.Fatalf("import: %d %s", w.Code, w.Body.String())
+	}
+	var res cups.InventoryImportResult
+	if err := json.Unmarshal(w.Body.Bytes(), &res); err != nil || res.Count != 1 || len(res.Skipped) != 1 || res.Skipped[0].Line != 3 || res.Matched != 1 {
+		t.Errorf("result: %+v %v", res, err)
+	}
+
+	// This mock queue has a direct device URI, so its host wins over the list
+	// (the print server case is covered in the cups package tests).
+	req := newTestReq(srv, "PUT", "/api/v1/accessories/features", strings.NewReader(`{"snmp_enabled":true}`))
+	srv.Handler().ServeHTTP(httptest.NewRecorder(), req)
+	if w := do("GET", "/api/v1/printers/Finance_Secure_Copier/accessories"); !strings.Contains(w.Body.String(), `"snmp_host_source":"device_uri"`) || strings.Contains(w.Body.String(), "print_server_entry") {
+		t.Errorf("report: %s", w.Body.String())
+	}
+
+	if w := upload("csv", "bad.csv", "Name,Address\nA,B\n"); w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "no PrinterName") {
+		t.Errorf("bad header: %d %s", w.Code, w.Body.String())
+	}
+	if w := upload("file", "list.csv", csv); w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "csv") {
+		t.Errorf("wrong field: %d %s", w.Code, w.Body.String())
+	}
+	if w := upload("csv", "big.csv", csv+strings.Repeat("x", 3<<20)); w.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("too big: %d %s", w.Code, w.Body.String())
+	}
+	req = newTestReq(srv, "POST", "/api/v1/accessories/inventory", strings.NewReader(csv))
+	req.Header.Set("Content-Type", "text/csv")
+	w = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("not multipart: %d", w.Code)
+	}
+	// Failed uploads keep the list.
+	if w := do("GET", "/api/v1/accessories/inventory"); !strings.Contains(w.Body.String(), `"count":1`) {
+		t.Errorf("after failures: %s", w.Body.String())
+	}
+	if w := do("DELETE", "/api/v1/accessories/inventory"); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"loaded":false`) {
+		t.Errorf("delete: %d %s", w.Code, w.Body.String())
 	}
 }

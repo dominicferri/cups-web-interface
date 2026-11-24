@@ -76,6 +76,16 @@ func (s *mockAccessorySource) DeviceURI(name string) (string, error) {
 	return p.URI, nil
 }
 
+func (s *mockAccessorySource) DeviceURIs() (map[string]string, error) {
+	s.m.mu.RLock()
+	defer s.m.mu.RUnlock()
+	uris := map[string]string{}
+	for n, p := range s.m.printers {
+		uris[n] = p.URI
+	}
+	return uris, nil
+}
+
 func (s *mockAccessorySource) ApplyOptions(name string, options map[string]string) error {
 	s.m.mu.Lock()
 	defer s.m.mu.Unlock()
@@ -182,4 +192,16 @@ func (m *MockAdapter) GetAccessoryFeatures() (*AccessoryFeatureStatus, error) {
 
 func (m *MockAdapter) SetAccessoryFeatures(f AccessoryFeatures) (*AccessoryFeatureStatus, error) {
 	return m.accessories().SetSNMPFeatures(f)
+}
+
+func (m *MockAdapter) GetPrinterInventory() (*InventoryStatus, error) {
+	return m.accessories().PrinterInventory(), nil
+}
+
+func (m *MockAdapter) ImportPrinterInventory(sourceName string, data []byte) (*InventoryImportResult, error) {
+	return m.accessories().ImportPrinterInventory(sourceName, data)
+}
+
+func (m *MockAdapter) RemovePrinterInventory() (*InventoryStatus, error) {
+	return m.accessories().RemovePrinterInventory()
 }

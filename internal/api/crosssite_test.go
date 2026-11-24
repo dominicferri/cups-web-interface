@@ -18,6 +18,9 @@ func TestAPIRefusesRequestsFromOtherSites(t *testing.T) {
 		{"POST", "/api/v1/printers/Finance_Secure_Copier/accessories/snmp"},
 		{"GET", "/api/v1/accessories/features"},
 		{"PUT", "/api/v1/accessories/features"},
+		{"GET", "/api/v1/accessories/inventory"},
+		{"POST", "/api/v1/accessories/inventory"},
+		{"DELETE", "/api/v1/accessories/inventory"},
 	}
 	for _, p := range paths {
 		for _, site := range []string{"cross-site", "same-site"} {

@@ -142,3 +142,18 @@ func (a *CLIAdapter) GetAccessoryFeatures() (*AccessoryFeatureStatus, error) {
 func (a *CLIAdapter) SetAccessoryFeatures(f AccessoryFeatures) (*AccessoryFeatureStatus, error) {
 	return a.accessories().SetSNMPFeatures(f)
 }
+
+// GetPrinterInventory reports the imported print server list.
+func (a *CLIAdapter) GetPrinterInventory() (*InventoryStatus, error) {
+	return a.accessories().PrinterInventory(), nil
+}
+
+// ImportPrinterInventory replaces the print server list with a CSV export.
+func (a *CLIAdapter) ImportPrinterInventory(sourceName string, data []byte) (*InventoryImportResult, error) {
+	return a.accessories().ImportPrinterInventory(sourceName, data)
+}
+
+// RemovePrinterInventory forgets the print server list.
+func (a *CLIAdapter) RemovePrinterInventory() (*InventoryStatus, error) {
+	return a.accessories().RemovePrinterInventory()
+}

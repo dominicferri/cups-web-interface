@@ -92,15 +92,21 @@ func (s *FeatureStore) Save(f AccessoryFeatures) error {
 	if s.path == "" {
 		return errors.New("the settings file location is unknown")
 	}
-	dir := filepath.Dir(s.path)
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return err
-	}
 	data, err := json.MarshalIndent(f, "", "  ")
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(dir, ".features-*.tmp")
+	return writeFileAtomic(s.path, append(data, '\n'))
+}
+
+// writeFileAtomic writes data to path through a temporary file in the same
+// folder, readable only by this account, so a crash never leaves half a file.
+func writeFileAtomic(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+"-*.tmp")
 	if err != nil {
 		return err
 	}
@@ -115,14 +121,14 @@ func (s *FeatureStore) Save(f AccessoryFeatures) error {
 		_ = tmp.Close()
 		return err
 	}
-	if _, err := tmp.Write(append(data, '\n')); err != nil {
+	if _, err := tmp.Write(data); err != nil {
 		_ = tmp.Close()
 		return err
 	}
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(tmpName, s.path); err != nil {
+	if err := os.Rename(tmpName, path); err != nil {
 		return err
 	}
 	ok = true
