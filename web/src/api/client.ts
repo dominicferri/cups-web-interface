@@ -7,6 +7,8 @@ import type {
   AccessorySuggestions,
   SNMPInventory,
   AccessoryFeatureStatus,
+  InventoryStatus,
+  InventoryImportResult,
   ArchAuditResult,
   FleetAuditSummary,
   AddPrinterParams,
@@ -281,6 +283,23 @@ export const api = {
   async getAccessoryFeatures(): Promise<AccessoryFeatureStatus> {
     const res = await apiFetch(`${API_BASE}/accessories/features`);
     return handleResponse<AccessoryFeatureStatus>(res);
+  },
+
+  async getPrinterInventory(): Promise<InventoryStatus> {
+    const res = await apiFetch(`${API_BASE}/accessories/inventory`);
+    return handleResponse<InventoryStatus>(res);
+  },
+
+  async importPrinterInventory(file: File): Promise<InventoryImportResult> {
+    const form = new FormData();
+    form.append('csv', file);
+    const res = await apiFetch(`${API_BASE}/accessories/inventory`, { method: 'POST', body: form });
+    return handleResponse<InventoryImportResult>(res);
+  },
+
+  async removePrinterInventory(): Promise<InventoryStatus> {
+    const res = await apiFetch(`${API_BASE}/accessories/inventory`, { method: 'DELETE' });
+    return handleResponse<InventoryStatus>(res);
   },
 
   async setAccessoryFeatures(features: { snmp_enabled: boolean }): Promise<AccessoryFeatureStatus> {

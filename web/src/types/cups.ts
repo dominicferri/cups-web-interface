@@ -140,8 +140,11 @@ export interface AccessoryReport {
   warning?: string;
   // An administrator turned on the SNMP hardware check (Server Settings).
   snmp_enabled: boolean;
-  // The printer's host from a direct device URI, to prefill the SNMP form.
+  // The printer's address to prefill the SNMP form.
   snmp_host_hint?: string;
+  snmp_host_source?: 'device_uri' | 'print_server_list';
+  // This queue's row in the imported print server list.
+  print_server_entry?: InventoryEntry;
 }
 
 export interface AccessorySuggestion {
@@ -196,6 +199,36 @@ export interface SNMPInventory {
   finishers: SNMPFinisher[];
   duplex: string[];
   suggestions: AccessorySuggestion[];
+}
+
+export interface InventoryEntry {
+  name: string;
+  address: string;
+  model?: string;
+  driver?: string;
+  port?: string;
+}
+
+export interface InventoryRowIssue {
+  line: number;
+  name?: string;
+  reason: string;
+}
+
+// The printer list imported from a print server CSV export.
+export interface InventoryStatus {
+  loaded: boolean;
+  source_name?: string;
+  imported_at?: string;
+  count: number;
+  error?: string;
+}
+
+export interface InventoryImportResult extends InventoryStatus {
+  rows: number;
+  skipped: InventoryRowIssue[];
+  queues: number;
+  matched: number;
 }
 
 export interface AccessoryFeatureStatus {

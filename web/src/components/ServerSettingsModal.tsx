@@ -14,7 +14,13 @@ import {
   Trash2,
   Radar,
 } from 'lucide-react';
-import type { ServerSettings, LaunchAgentStatus, AccessoryFeatureStatus } from '../types/cups';
+import type {
+  ServerSettings,
+  LaunchAgentStatus,
+  AccessoryFeatureStatus,
+  InventoryStatus,
+  InventoryImportResult,
+} from '../types/cups';
 import { api } from '../api/client';
 import { useModalDialog } from '../utils/useModalDialog';
 
@@ -47,6 +53,11 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
   const [features, setFeatures] = useState<AccessoryFeatureStatus | null>(null);
   const [featuresSaving, setFeaturesSaving] = useState(false);
   const snmpToggleId = useId();
+  const csvInputId = useId();
+  const [inventory, setInventory] = useState<InventoryStatus | null>(null);
+  const [importResult, setImportResult] = useState<InventoryImportResult | null>(null);
+  const [inventoryError, setInventoryError] = useState<string | null>(null);
+  const [inventoryBusy, setInventoryBusy] = useState(false);
 
   const fetchLaunchAgent = async () => {
     try {
@@ -80,8 +91,45 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
         .getAccessoryFeatures()
         .then(setFeatures)
         .catch(() => setFeatures(null));
+      setImportResult(null);
+      setInventoryError(null);
+      api
+        .getPrinterInventory()
+        .then(setInventory)
+        .catch(() => setInventory(null));
     }
   }, [isOpen]);
+
+  const handleImportCsv = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // choosing the same file again re-imports it
+    if (!file) return;
+    setInventoryBusy(true);
+    setInventoryError(null);
+    setImportResult(null);
+    try {
+      const res = await api.importPrinterInventory(file);
+      setImportResult(res);
+      setInventory(res);
+    } catch (err) {
+      setInventoryError(err instanceof Error ? err.message : 'Failed to import the printer list');
+    } finally {
+      setInventoryBusy(false);
+    }
+  };
+
+  const handleRemoveCsv = async () => {
+    setInventoryBusy(true);
+    setInventoryError(null);
+    setImportResult(null);
+    try {
+      setInventory(await api.removePrinterInventory());
+    } catch (err) {
+      setInventoryError(err instanceof Error ? err.message : 'Failed to remove the printer list');
+    } finally {
+      setInventoryBusy(false);
+    }
+  };
 
   const handleToggleSnmp = async (enabled: boolean) => {
     setFeaturesSaving(true);
@@ -400,6 +448,78 @@ export const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
                         {features.error && (
                           <span className="text-xs text-red-600 dark:text-red-400 block">{features.error}</span>
                         )}
+
+                        {/* Print server list: fills in each queue's printer address */}
+                        <div className="pt-2 mt-2 border-t border-slate-200 dark:border-slate-700 space-y-1.5">
+                          <span className="text-xs font-semibold text-slate-900 dark:text-white block">Print server list (CSV)</span>
+                          <span className="text-xs text-slate-500 dark:text-slate-400 block">
+                            A printer list exported from a Windows print server (PrinterName, Model, Driver, PortName, IPAddress). The SNMP check uses it to fill in each queue's printer address. It stays on this Mac.
+                          </span>
+                          {inventory?.loaded ? (
+                            <span className="text-xs text-slate-700 dark:text-slate-300 block">
+                              {inventory.count} printers from <span className="font-mono">{inventory.source_name}</span>
+                              {inventory.imported_at && <>, imported {new Date(inventory.imported_at).toLocaleString()}</>}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-slate-500 dark:text-slate-400 block">No list imported.</span>
+                          )}
+                          {inventory?.error && (
+                            <span className="text-xs text-red-600 dark:text-red-400 block">{inventory.error}</span>
+                          )}
+                          <div className="flex items-center gap-2">
+                            <label
+                              htmlFor={csvInputId}
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 ${inventoryBusy || !features.is_admin ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}
+                            >
+                              {inventoryBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" /> : <FileCode className="w-3.5 h-3.5" aria-hidden="true" />}
+                              <span>{inventory?.loaded ? 'Replace list…' : 'Import CSV…'}</span>
+                            </label>
+                            <input
+                              id={csvInputId}
+                              type="file"
+                              accept=".csv,text/csv"
+                              className="sr-only"
+                              disabled={inventoryBusy || !features.is_admin}
+                              onChange={handleImportCsv}
+                            />
+                            {inventory?.loaded && (
+                              <button
+                                type="button"
+                                onClick={handleRemoveCsv}
+                                disabled={inventoryBusy || !features.is_admin}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 hover:bg-red-50 dark:hover:bg-red-950/40 disabled:opacity-50 cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                                <span>Remove list</span>
+                              </button>
+                            )}
+                          </div>
+                          {inventoryError && (
+                            <span role="alert" className="text-xs text-red-600 dark:text-red-400 block">{inventoryError}</span>
+                          )}
+                          {importResult && (
+                            <div role="status" className="text-xs text-slate-600 dark:text-slate-300 space-y-1">
+                              <span className="block">
+                                Imported {importResult.count} of {importResult.rows} rows.
+                                {importResult.queues > 0 && <> {importResult.matched} of {importResult.queues} queues on this Mac found their printer.</>}
+                              </span>
+                              {importResult.skipped.length > 0 && (
+                                <details>
+                                  <summary className="cursor-pointer">
+                                    Skipped {importResult.skipped.length} {importResult.skipped.length === 1 ? 'row' : 'rows'}
+                                  </summary>
+                                  <ul className="list-disc pl-4 max-h-32 overflow-y-auto">
+                                    {importResult.skipped.map((s) => (
+                                      <li key={s.line}>
+                                        Line {s.line}{s.name ? ` (${s.name})` : ''}: {s.reason}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </details>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>

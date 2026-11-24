@@ -591,6 +591,13 @@ export const AccessoriesPanel: React.FC<AccessoriesPanelProps> = ({ printerName,
                   <span>Check installed hardware (SNMP)</span>
                 </button>
               </form>
+              {report.snmp_host_source === 'print_server_list' && report.print_server_entry && (
+                <p className="text-xs text-slate-600 dark:text-slate-300">
+                  Address from the print server list: <span className="font-mono">{report.print_server_entry.address}</span>
+                  {report.print_server_entry.model && <> · {report.print_server_entry.model}</>}
+                  {report.print_server_entry.driver && <> · {report.print_server_entry.driver}</>}
+                </p>
+              )}
               <p className="text-xs text-slate-500 dark:text-slate-400">
                 Use the printer's own address, not the print server's. This Mac's network must reach the printer on UDP port 161.
               </p>
