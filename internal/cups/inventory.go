@@ -57,7 +57,7 @@ type InventoryRowIssue struct {
 type InventoryStatus struct {
 	Loaded     bool      `json:"loaded"`
 	SourceName string    `json:"source_name,omitempty"`
-	ImportedAt time.Time `json:"imported_at,omitempty"`
+	ImportedAt time.Time `json:"imported_at,omitzero"`
 	Count      int       `json:"count"`
 	Error      string    `json:"error,omitempty"`
 }

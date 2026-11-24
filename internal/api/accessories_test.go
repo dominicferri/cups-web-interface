@@ -196,7 +196,7 @@ func TestPrinterInventoryEndpoints(t *testing.T) {
 		"\"Finance Secure Copier\",\"Example\",\"Example PS\",\"192.0.2.20\",\"192.0.2.20\"\n" +
 		"\"Kiosk\",\"\",\"\",\"TS001\",\"N/A\"\n"
 
-	if w := do("GET", "/api/v1/accessories/inventory"); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"loaded":false`) {
+	if w := do("GET", "/api/v1/accessories/inventory"); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"loaded":false`) || strings.Contains(w.Body.String(), "imported_at") {
 		t.Fatalf("empty: %d %s", w.Code, w.Body.String())
 	}
 	w := upload("csv", "list.csv", csv)
